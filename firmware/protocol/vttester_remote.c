@@ -1,16 +1,21 @@
 /*
- * VTTester Protocol v0.2 - Remote layer implementation
- * CRC-8, RX state machine, frame build (SET ACK, MEAS ACK, MEAS RESULT).
- * Integer-only; no float. Safe to call vttester_feed_byte from ISR.
+ * VTTester Protocol v0.2 - Parse 8-byte frame, build ACK and MEAS result.
+ * Caller owns RX/TX buffers; no internal state. Integer-only.
  */
 
 #include "vttester_remote.h"
+#ifdef __AVR__
+#include <avr/pgmspace.h>
+#endif
 
-#define RX_RING_SIZE 32  /* must be power of 2 */
 #define CMD_SET  0
 #define CMD_MEAS 1
 
-static unsigned char crc8_table[256] = {
+#ifdef __AVR__
+static const unsigned char crc8_table[256] PROGMEM = {
+#else
+static const unsigned char crc8_table[256] = {
+#endif
     0x00,0x07,0x0E,0x09,0x1C,0x1B,0x12,0x15,0x38,0x3F,0x36,0x31,0x24,0x23,0x2A,0x2D,
     0x70,0x77,0x7E,0x79,0x6C,0x6B,0x62,0x65,0x48,0x4F,0x46,0x41,0x54,0x53,0x5A,0x5D,
     0xE0,0xE7,0xEE,0xE9,0xFC,0xFB,0xF2,0xF5,0xD8,0xDF,0xD6,0xD1,0xC4,0xC3,0xCA,0xCD,
@@ -32,7 +37,11 @@ static unsigned char crc8_table[256] = {
 static unsigned char crc8_compute(const unsigned char *data, unsigned char len)
 {
     unsigned char crc = 0;
+#ifdef __AVR__
+    while (len--) crc = pgm_read_byte(&crc8_table[crc ^ *data++]);
+#else
     while (len--) crc = crc8_table[crc ^ *data++];
+#endif
     return crc;
 }
 
@@ -41,162 +50,135 @@ static void frame_append_crc(unsigned char *f)
     f[7] = crc8_compute(f, 7);
 }
 
-/* RX: ring buffer (ISR pushes, poll pulls) */
-static unsigned char rx_ring[RX_RING_SIZE];
-static unsigned char rx_head;
-static unsigned char rx_tail;
+/* HEAT_IDX 0..7 -> uhdef (0.1V). 0=off, 1=1.4, 2=2.0, 3=2.5, 4=4.0, 5=5.0, 6=6.3, 7=12.6 */
+static const unsigned char heat_voltage[8] = { 0, 14, 20, 25, 40, 50, 63, 126 };
 
-/* Current frame being assembled */
-static unsigned char rx_frame[VTTESTER_FRAME_LEN];
-static unsigned char rx_pos;
-
-/* Last valid frame (for get_last_frame) and event */
-static unsigned char last_frame[VTTESTER_FRAME_LEN];
-static unsigned char pending_event;
-
-/* TX: single frame queue */
-static unsigned char tx_frame[VTTESTER_FRAME_LEN];
-static unsigned char tx_pending;
-
-void vttester_init(void)
+unsigned char vttester_parse_message(const unsigned char *frame, vttester_parsed_t *out)
 {
-    rx_head = rx_tail = 0;
-    rx_pos = 0;
-    pending_event = VTTESTER_EVENT_NONE;
-    tx_pending = 0;
-}
+    unsigned char cmd, p1, p2, p3, p4, p5;
+    unsigned char heat_idx;
+    unsigned int ua_v, ug2_v, ug1_mag;
 
-void vttester_feed_byte(unsigned char b)
-{
-    unsigned char next = (rx_head + 1) & (RX_RING_SIZE - 1);
-    if (next != rx_tail) {
-        rx_ring[rx_head] = b;
-        rx_head = next;
+    out->cmd = VTTESTER_CMD_NONE;
+    out->index = frame[1];
+    out->err_code = VTTESTER_ERR_UNKNOWN;
+    out->set.error_param = 0;
+    out->set.error_value = 0;
+
+    if (crc8_compute(frame, 7) != frame[7]) {
+        out->err_code = VTTESTER_ERR_CRC;
+        return VTTESTER_CMD_NONE;
     }
-}
-
-unsigned char vttester_poll(void)
-{
-    unsigned char ev = VTTESTER_EVENT_NONE;
-    unsigned char cmd;
-
-    pending_event = VTTESTER_EVENT_NONE;
-
-    while (rx_tail != rx_head) {
-        unsigned char b = rx_ring[rx_tail];
-        rx_tail = (rx_tail + 1) & (RX_RING_SIZE - 1);
-
-        rx_frame[rx_pos++] = b;
-        if (rx_pos >= VTTESTER_FRAME_LEN) {
-            rx_pos = 0;
-            if (crc8_compute(rx_frame, 7) != rx_frame[7])
-                continue; /* CRC error, discard */
-            cmd = (rx_frame[0] >> 6) & 0x03;
-            if (!(rx_frame[0] & 0x20))
-                continue; /* not SETTINGS (REMOTE mode) */
-            if (cmd == CMD_SET) {
-                ev = VTTESTER_EVENT_SET;
-                break;
-            }
-            if (cmd == CMD_MEAS) {
-                ev = VTTESTER_EVENT_MEAS;
-                break;
-            }
-            /* READ or unknown: ignore for now */
-        }
+    cmd = (frame[0] >> 6) & 0x03;
+    if (!(frame[0] & 0x20)) {
+        out->err_code = VTTESTER_ERR_INVALID_CMD;
+        return VTTESTER_CMD_NONE;
     }
 
-    if (ev != VTTESTER_EVENT_NONE) {
-        for (cmd = 0; cmd < VTTESTER_FRAME_LEN; cmd++)
-            last_frame[cmd] = rx_frame[cmd];
-        pending_event = ev;
+    if (cmd == CMD_MEAS) {
+        out->cmd = VTTESTER_CMD_MEAS;
+        return VTTESTER_CMD_MEAS;
     }
-    return pending_event;
+
+    if (cmd != CMD_SET) {
+        out->err_code = VTTESTER_ERR_INVALID_CMD;
+        return VTTESTER_CMD_NONE;
+    }
+
+    p1 = frame[2]; p2 = frame[3]; p3 = frame[4]; p4 = frame[5]; p5 = frame[6];
+
+    heat_idx = p1 & 0x0F;
+    if (heat_idx > 7) {
+        out->cmd = VTTESTER_CMD_SET;
+        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;
+        out->set.error_param = 1;
+        out->set.error_value = heat_idx;
+        return VTTESTER_CMD_SET;
+    }
+    out->set.uhdef = heat_voltage[heat_idx];
+    out->set.ihdef = 0;
+
+    ua_v = (unsigned int)p2 * 10u;
+    if (ua_v > 300u) {
+        out->cmd = VTTESTER_CMD_SET;
+        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;
+        out->set.error_param = 2;
+        out->set.error_value = ua_v;
+        return VTTESTER_CMD_SET;
+    }
+    out->set.uadef = ua_v;
+
+    ug2_v = (unsigned int)p3 * 10u;
+    if (ug2_v > 300u) {
+        out->cmd = VTTESTER_CMD_SET;
+        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;
+        out->set.error_param = 3;
+        out->set.error_value = ug2_v;
+        return VTTESTER_CMD_SET;
+    }
+    out->set.ug2def = ug2_v;
+
+    ug1_mag = (unsigned int)p4 * 5u;
+    if (ug1_mag > 240u) {
+        out->cmd = VTTESTER_CMD_SET;
+        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;
+        out->set.error_param = 4;
+        out->set.error_value = (unsigned int)p4;
+        return VTTESTER_CMD_SET;
+    }
+    out->set.ug1def = 240 - (unsigned char)ug1_mag;
+
+    if (p5 > 63) {
+        out->cmd = VTTESTER_CMD_SET;
+        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;
+        out->set.error_param = 5;
+        out->set.error_value = p5;
+        return VTTESTER_CMD_SET;
+    }
+    out->err_code = VTTESTER_ERR_OK;
+    out->set.tuh_ticks = (unsigned int)p5 * 2u;
+
+    out->cmd = VTTESTER_CMD_SET;
+    return VTTESTER_CMD_SET;
 }
 
-void vttester_get_last_frame(unsigned char *out)
+void vttester_send_response(unsigned char *buf, unsigned char index, unsigned char err_code,
+    unsigned char param_id, unsigned int value)
 {
-    unsigned char i;
-    for (i = 0; i < VTTESTER_FRAME_LEN; i++)
-        out[i] = last_frame[i];
+    buf[0] = 0x02;
+    buf[1] = index;
+    buf[2] = err_code;
+    buf[3] = buf[4] = buf[5] = buf[6] = 0;
+    if (err_code == VTTESTER_ERR_OUT_OF_RANGE) {
+        buf[3] = param_id;
+        buf[4] = (unsigned char)(value >> 8);
+        buf[5] = (unsigned char)(value & 0xFF);
+    }
+    frame_append_crc(buf);
 }
 
-void vttester_send_set_ack(unsigned char index, unsigned char error_code)
-{
-    tx_frame[0] = 0x02;
-    tx_frame[1] = index;
-    tx_frame[2] = error_code;
-    tx_frame[3] = tx_frame[4] = tx_frame[5] = tx_frame[6] = 0;
-    frame_append_crc(tx_frame);
-    tx_pending = 1;
-}
-
-void vttester_send_set_ack_out_of_range(unsigned char index, unsigned char param_id, unsigned int value)
-{
-    tx_frame[0] = 0x02;
-    tx_frame[1] = index;
-    tx_frame[2] = VTTESTER_ERR_OUT_OF_RANGE;
-    tx_frame[3] = param_id;
-    tx_frame[4] = (unsigned char)(value >> 8);
-    tx_frame[5] = (unsigned char)(value & 0xFF);
-    tx_frame[6] = 0;
-    frame_append_crc(tx_frame);
-    tx_pending = 1;
-}
-
-void vttester_send_meas_ack(unsigned char index)
-{
-    tx_frame[0] = 0x02;
-    tx_frame[1] = index;
-    tx_frame[2] = tx_frame[3] = tx_frame[4] = tx_frame[5] = tx_frame[6] = 0;
-    frame_append_crc(tx_frame);
-    tx_pending = 1;
-}
-
-void vttester_send_meas_result(unsigned char index,
+void vttester_send_measurement(unsigned char *buf, unsigned char index,
     unsigned int ihlcd, unsigned int ialcd, unsigned char rangelcd,
     unsigned int ig2lcd, unsigned int slcd, unsigned char alarm_bits)
 {
     unsigned int r;
 
-    tx_frame[0] = 0x02;
-    tx_frame[1] = index;
-    /* R1: IH_IDX (ihlcd 0..250 = 0..2.5A, 10mA/step) */
+    buf[0] = 0x02;
+    buf[1] = index;
     if (ihlcd > 255) r = 255; else r = ihlcd;
-    tx_frame[2] = (unsigned char)r;
-    /* R2: IA_IDX (ialcd in 0.01mA -> mA) */
+    buf[2] = (unsigned char)r;
     r = ialcd + 5;
     r /= 10;
     if (r > 255) r = 255;
-    tx_frame[3] = (unsigned char)r;
-    /* R3: IG2_IDX (ig2lcd 0.01mA -> 0.16mA step) */
+    buf[3] = (unsigned char)r;
     r = (unsigned int)ig2lcd * 10u + 8u;
     r /= 16u;
     if (r > 255) r = 255;
-    tx_frame[4] = (unsigned char)r;
-    /* R4: S_IDX (slcd 0..999 -> 0.1 mA/V) */
+    buf[4] = (unsigned char)r;
     r = slcd + 5;
     r /= 10;
     if (r > 255) r = 255;
-    tx_frame[5] = (unsigned char)r;
-    tx_frame[6] = alarm_bits & 0xF0; /* R5: alarm bitmap, low nibble reserved */
-    frame_append_crc(tx_frame);
-    tx_pending = 1;
-}
-
-unsigned char vttester_has_pending_tx(void)
-{
-    return tx_pending;
-}
-
-void vttester_get_pending_tx(unsigned char *buf)
-{
-    unsigned char i;
-    for (i = 0; i < VTTESTER_FRAME_LEN; i++)
-        buf[i] = tx_frame[i];
-}
-
-void vttester_clear_pending_tx(void)
-{
-    tx_pending = 0;
+    buf[5] = (unsigned char)r;
+    buf[6] = alarm_bits & 0xF0;
+    frame_append_crc(buf);
 }

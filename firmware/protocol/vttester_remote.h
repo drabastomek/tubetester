@@ -2,7 +2,8 @@
  * VTTester Protocol v0.2 - Remote (PC <-> FW) binary protocol
  *
  * Frame: 8 bytes. CMD in CTRL (SET=0, MEAS=1, READ=2). CRC-8 on bytes 0..6.
- * Flow: SET -> ACK; MEAS -> ACK (immediate) -> RESULT (when measurement done).
+ * Caller assembles RX frame and passes to vttester_parse_message; caller
+ * provides TX buffer to vttester_send_response / vttester_send_measurement.
  */
 
 #ifndef VTTESTER_REMOTE_H
@@ -10,58 +11,62 @@
 
 #define VTTESTER_FRAME_LEN 8
 
-/* --- Error codes (ACK R1 for SET, or when STATUS=ERROR) --- */
-#define VTTESTER_ERR_OK             0x00
-#define VTTESTER_ERR_UNKNOWN        0x01
-#define VTTESTER_ERR_OUT_OF_RANGE   0x02
-#define VTTESTER_ERR_CRC            0x03
-#define VTTESTER_ERR_INVALID_CMD    0x04
-#define VTTESTER_ERR_HARDWARE       0x06
+/* --- Parse result: command type --- */
+#define VTTESTER_CMD_NONE  0
+#define VTTESTER_CMD_SET   1
+#define VTTESTER_CMD_MEAS  2
 
-/* --- Alarm bitmap (RESULT R5, and R1 when STATUS=ALARM) --- */
-#define VTTESTER_ALARM_OVERIH  0x10  /* Heater overcurrent */
-#define VTTESTER_ALARM_OVERIA  0x20  /* Anode overcurrent */
-#define VTTESTER_ALARM_OVERIG  0x40  /* Grid 2 overcurrent */
-#define VTTESTER_ALARM_OVERTE  0x80  /* Overtemp */
+/* --- Error codes (ACK R1 for SET) --- */
+#define VTTESTER_ERR_OK              0x00
+#define VTTESTER_ERR_UNKNOWN         0x01
+#define VTTESTER_ERR_OUT_OF_RANGE    0x02
+#define VTTESTER_ERR_CRC             0x03
+#define VTTESTER_ERR_INVALID_CMD     0x04
+#define VTTESTER_ERR_HARDWARE        0x06
 
-/* --- Events returned by vttester_poll --- */
-#define VTTESTER_EVENT_NONE    0
-#define VTTESTER_EVENT_SET     1
-#define VTTESTER_EVENT_MEAS    2
+/* --- Alarm bitmap (RESULT R5) --- */
+#define VTTESTER_ALARM_OVERIH  0x10
+#define VTTESTER_ALARM_OVERIA  0x20
+#define VTTESTER_ALARM_OVERIG  0x40
+#define VTTESTER_ALARM_OVERTE  0x80
 
-/* --- API --- */
+/* --- Parsed SET parameters (from vttester_parse_message when cmd == SET) --- */
+typedef struct {
+   unsigned char uhdef;
+   unsigned char ihdef;
+   unsigned char ug1def;
+   unsigned int  uadef;
+   unsigned int  ug2def;
+   unsigned int  tuh_ticks;
+   unsigned char error_param;
+   unsigned int  error_value;
+} vttester_set_params_t;
 
-/* Call once at startup. */
-void vttester_init(void);
+/* --- Parsed message (filled by vttester_parse_message) --- */
+typedef struct {
+   unsigned char cmd;           /* VTTESTER_CMD_* */
+   unsigned char index;         /* INDEX byte */
+   unsigned char err_code;     /* VTTESTER_ERR_* to send in ACK (parser sets for NONE and SET) */
+   vttester_set_params_t set;  /* valid when cmd == SET */
+} vttester_parsed_t;
 
-/* Feed one byte from UART RX (call from ISR or after reading UDR in main). */
-void vttester_feed_byte(unsigned char b);
+/* --- Public API --- */
 
-/* Process received bytes; returns VTTESTER_EVENT_* when a valid frame is ready. */
-unsigned char vttester_poll(void);
+/* Parse 8-byte frame. Returns VTTESTER_CMD_NONE, VTTESTER_CMD_SET, or VTTESTER_CMD_MEAS.
+   Fills out->err_code (always): for NONE = CRC/INVALID_CMD/UNKNOWN, for SET = OK or OUT_OF_RANGE.
+   For SET, out->set.error_param/error_value are set when err_code == OUT_OF_RANGE. */
+unsigned char vttester_parse_message(const unsigned char *frame, vttester_parsed_t *out);
 
-/* Copy last received frame (8 bytes). Call after vttester_poll() returns SET or MEAS. */
-void vttester_get_last_frame(unsigned char *out);
+/* Build SET or MEAS ACK into buf (8 bytes). err_code = VTTESTER_ERR_*.
+   When err_code == VTTESTER_ERR_OUT_OF_RANGE, param_id (1..5) and value
+   are written to R2 and R3-R4; otherwise param_id/value are ignored. */
+void vttester_send_response(unsigned char *buf, unsigned char index, unsigned char err_code,
+   unsigned char param_id, unsigned int value);
 
-/* Request to send SET ACK. error_code = VTTESTER_ERR_* (e.g. OUT_OF_RANGE). */
-void vttester_send_set_ack(unsigned char index, unsigned char error_code);
-
-/* SET ACK with OUT_OF_RANGE details: R2=param_id (1..5), R3-R4=16-bit value (high byte R3). */
-void vttester_send_set_ack_out_of_range(unsigned char index, unsigned char param_id, unsigned int value);
-
-/* Request to send MEAS immediate ACK ("OK, starting measurement"). */
-void vttester_send_meas_ack(unsigned char index);
-
-/* Build and queue MEAS result frame. Uses firmware units: ihlcd (0..250 = 0..2.5A),
-   ialcd (0.01 mA, range 0=40mA max, 1=200mA max), ig2lcd (0.01 mA), slcd (0..999 = 0..99.9),
-   alarm_bits = VTTESTER_ALARM_* mask. */
-void vttester_send_meas_result(unsigned char index,
+/* Build MEAS result frame into buf (8 bytes). ihlcd 0..250, ialcd in 0.01mA,
+   rangelcd 0/1, ig2lcd 0.01mA, slcd 0..999, alarm_bits = VTTESTER_ALARM_* mask. */
+void vttester_send_measurement(unsigned char *buf, unsigned char index,
    unsigned int ihlcd, unsigned int ialcd, unsigned char rangelcd,
    unsigned int ig2lcd, unsigned int slcd, unsigned char alarm_bits);
-
-/* True if a frame is queued to send. Main should send it byte-by-byte then call clear. */
-unsigned char vttester_has_pending_tx(void);
-void vttester_get_pending_tx(unsigned char *buf);
-void vttester_clear_pending_tx(void);
 
 #endif /* VTTESTER_REMOTE_H */
