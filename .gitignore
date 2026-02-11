@@ -1,0 +1,6 @@
+.DS_Store
+.ipynb_checkpoints/
+.vscode/
+
+firmware/vttester_protocol_example/
+vttester_protocol_example.*

@@ -1,0 +1,615 @@
+================================================================================
+Protokol komunikacyjny VTTester - Wersja 0.2
+Aplikacja desktopowa <--> Firmware - Protokol binarny (Tylko tryb REMOTE)
+================================================================================
+
+HISTORIA
+--------
+v0.1 - Wstepna propozycja (dokument "Protokol komunikacyjny VTTester.pdf")
+v0.2 - Protokol trybu REMOTE dla aplikacji na komputer
+       Usunieto komende STORE (brak zdalnego zapisu do EEPROM z aplikacji)
+       Usunieto operacje katalogowe (aplikacja uzywa lokalnej bazy danych lamp)
+       Protokol definiuje TYLKO: SET, MEAS, READ STATUS
+       Utrzymano oryginalne kodowanie parametrow z indeksami
+       Dodano tryb ASCII (komenda ESC) dla wstecznej kompatybilnosci
+       Data: 2026-02-02
+
+================================================================================
+1. UZASADNIENIE PROTOKOLU BINARNEGO
+================================================================================
+
+DLACZEGO BINARNY ZAMIAST ASCII?
+
+1. WYDAJNOSC
+   - 8 bajtow na ramke vs. 20-60+ bajtow dla ASCII
+   - UART firmware przy 9600 baud: 
+     * Ramka binarna: 8,3ms czasu transmisji
+     * Odpowiednik ASCII: 20-60ms czasu transmisji
+   - Curve tracing z 100 punktami: 830ms vs 2-6 sekund
+
+2. STALY CZAS ODCZYTU / PRZESYLU
+   - Ramki o stalej dlugosci eliminuja zmiennosc czasu odczytu
+   - Operacje tesktowe zabieraja duzo czasu (brak narzutu strchr, strtok)
+   - Przewidywalne uzycie pamieci (bufor 8-bajtowy vs. zmienne)
+
+3. PROSTOTA ODCZYTU
+   - Operacje bitmapowe: (ctrl & 0xC0) >> 6  -->  ~5 cykli CPU
+   - Konwersja textu: strchr() + atoi()  -->  ~200+ cykli CPU
+   - Przyklad z firmware linia 832: obecnie czeka na znak ESC
+     Binarny: sprawdza czy buf[0] & 0xC0 daje poprawne polecenie
+
+4. WYKRYWANIE BLEDOW
+   - CRC-8 wykrywa bledy transmisji niezawodnie
+   - ASCII nie ma wbudowanego wykrywania bledow
+   - Krytyczne dla testowania lamp (zle napiecie = uszkodzona lampa)
+
+5. NA PRZYSZLOSC
+   - Latwe rozszerzanie o nowe komendy (niewykorzystane wzorce bitowe)
+   - Mozna dodawac parametry bez zmiany parsera
+   - Wartosci binarne maja naturalny zakres numeryczny
+
+6. ZMNIEJSZONE ZAPOTRZEBOWANIE NA PAMIEC W FIRMWARE
+   - Brak formatowania sprintf/printf (~800 bajtow oszczednosci)
+   - Brak bibliotek parsowania ASCII (~400 bajtow oszczednosci)
+   - Laczne oszczednosci: ~1,2KB na ATmega32 (4% z 32KB flash)
+
+================================================================================
+2. STRUKTURA RAMKI
+================================================================================
+
+2.1 STALA RAMKA 8-BAJTOWA (Oba kierunki)
+-----------------------------------------
+
+ Bajt | Pole       | Opis
+------|------------|--------------------------------------------------
+  0   | CTRL       | Kod polecenia/statusu + flagi
+  1   | INDEX      | Numer katalogowy lub informacja o typie lampy
+  2   | P1/R1      | Parametr 1 lub pole odpowiedzi 1
+  3   | P2/R2      | Parametr 2 lub pole odpowiedzi 2
+  4   | P3/R3      | Parametr 3 lub pole odpowiedzi 3
+  5   | P4/R4      | Parametr 4 lub pole odpowiedzi 4
+  6   | P5/R5      | Parametr 5 lub pole odpowiedzi 5
+  7   | CRC        | Suma kontrolna CRC-8 dla bajtow 0-6
+
+2.2 OBLICZANIE CRC-8 I OBSLUGA BLEDOW
+--------------------------------------
+
+Algorytm: CRC-8-CCITT
+Wielomian: 0x07 (x^8 + x^2 + x + 1)
+Wartosc poczatkowa: 0x00
+Koncowy XOR: 0x00
+
+Implementacja C (~30 linii):
+  unsigned char crc8(unsigned char *data, unsigned char len) {
+    unsigned char crc = 0;
+    for (unsigned char i = 0; i < len; i++) {
+      crc ^= data[i];
+      for (unsigned char j = 0; j < 8; j++) {
+        if (crc & 0x80)
+          crc = (crc << 1) ^ 0x07;
+        else
+          crc <<= 1;
+      }
+    }
+    return crc;
+  }
+
+Obsluga bledow CRC:
+
+W przypadku niezgodnosci CRC, firmware MUSI wyslac odpowiedz ERROR:
+  CTRL: 0x82 (ERROR)
+  INDEX: Echo z odebranej ramki (moze byc uszkodzony, staranie sie)
+  R1: 0x03 (kod CRC_ERROR)
+  R2-R5: 0x00
+  CRC: Prawidlowy CRC-8 dla tej odpowiedzi bledu
+
+Krytyczne zasady:
+  - NIGDY nie przetwarzaj komendy z nieprawidlowym CRC (krytyczne dla bezpieczenstwa!)
+  - NIGDY nie odrzucaj ramek bezglosnie (PC musi wiedziec ze komenda zostala odebrana)
+  - ZAWSZE wysylaj odpowiedz bledu aby PC mogl ponowic probe
+  
+Aplikacja desktopowa bedzie miala logike ponawiania prob (do 5. prob)
+
+================================================================================
+3. BAJT CTRL - PC --> FIRMWARE (ZADANIE)
+================================================================================
+
+Uklad bitow:
+  7   6   5   4   3   2   1   0
+[CMD ][R][CRV][    FLAGS    ]
+
+Bity 7-6: CMD (Polecenie)
+  00 = SET     - Ustaw parametry (nie zapisywane do EEPROM)
+  01 = MEAS    - Wykonaj pomiar
+  10 = READ    - Odczytaj status
+  11 = ZAREZERWOWANE
+
+Bit 5: ZAREZERWOWANY (zawsze ustawiony na 1 dla trybu SETTINGS)
+  Uwaga: W trybie lokalnym/panel czolowy, bit 5=0 wybiera tryb CATALOG
+         Aplikacja desktopowa w trybie REMOTE zawsze uzywa bit 5=1 (SETTINGS)
+
+Bit 4: CURVE (Krzywa)
+  0 = Normalny pojedynczy pomiar
+  1 = Tryb curve tracing (szybkie sekwencyjne pomiary)
+
+Bity 3-0: FLAGS (Flagi)
+  Obecnie zarezerwowane, ustawic na 0000
+
+Przyklady:
+  0x20 = SET, normalny (bit 5=1 dla SETTINGS)
+  0x30 = SET, tryb krzywej
+  0x60 = MEAS, normalny
+  0x70 = MEAS, tryb krzywej
+  0xA0 = READ, status
+
+================================================================================
+4. BAJT CTRL - FIRMWARE --> PC (ODPOWIEDZ)
+================================================================================
+
+Uklad bitow:
+  7   6   5     4    3   2   1   0
+[STATUS] [TGT] [CRV][   STATE      ]
+
+Bity 7-6: STATUS (Status)
+  00 = OK         - Polecenie wykonane, dane poprawne
+  01 = BUSY       - Pomiar w toku, sprobuj ponownie pozniej
+  10 = ERROR      - Wystapil blad (szczegoly w R1)
+  11 = ALARM      - Zadzialal alarm bezpieczenstwa (szczegoly w R1)
+
+Bit 5: ECHO_TARGET
+  Echo bitu TARGET z zadania
+
+Bit 4: ECHO_CURVE
+  Echo bitu CURVE z zadania
+
+Bity 3-0: STATE (Biezacy stan firmware)
+  Bit 3 = HEATING     - Trwa nagrzewanie
+  Bit 2 = MEASURING   - Trwa pomiar
+  Bit 1 = REMOTE      - Aktywny tryb zdalnego sterowania
+  Bit 0 = ALARM_LATCH - Zablokowany stan alarmu
+
+Przyklady:
+  0x02 = OK, tryb zdalny aktywny
+  0x0C = OK, obecnie w trakcie pomiaru
+  0x41 = BUSY, alarm zablokowany
+  0x8A = ERROR
+
+================================================================================
+5. BAJT INDEX
+================================================================================
+
+5.1 Gdy TARGET = 0 (CATALOG) - TYLKO TRYB LOKALNY
+--------------------------------------------------
+INDEX = Numer wpisu katalogowego (0-138)
+  0x00-0x01: Wpisy specjalne (PowerSupply, Remote)
+  0x02-0x63: Katalog ROM (98 wpisow) - TYLKO DO ODCZYTU
+  0x64-0x8A: Katalog EEPROM (39 wpisow) - Edytowalne z panelu przedniego
+
+KRYTYCZNE OGRANICZENIE W TRYBIE REMOTE:
+  TARGET=0 (CATALOG) jest CALKOWICIE ZABLOKOWANY w trybie REMOTE
+  
+  - Aplikacja desktopowa NIE MOZE uzywac zadnego katalogu (ROM ani EEPROM)
+  - Kazda komenda z TARGET=0 zwraca ERROR z kodem INVALID_MODE
+  - Aplikacja desktopowa MUSI uzywac TARGET=1 (SETTINGS) z bezposrednimi wartosciami parametrow
+  - Katalog jest TYLKO dostepny z panelu przedniego (operacja lokalna)
+  - To zapewnia ze aplikacja desktopowa zawsze okresla dokladne parametry jawnie
+
+UWAGA: W v0.2 aplikacja desktopowa i tak NIE MOZE zapisywac do katalogu (STORE usuniete)
+       Ale teraz tez NIE MOZE CZYTAC z katalogu w trybie REMOTE
+
+5.2 Gdy TARGET = 1 (SETTINGS)
+-----------------------------
+  Bity 7-4: TUBE_TYPE (Typ lampy)
+    0 = Trioda
+    1 = Trioda podwojna
+    2 = Pentoda
+    3 = Tetroda strumieniowa (beam tetrode)
+    4 = Dioda
+    5 = Dioda podwojna
+    6-15 = Zarezerwowane
+  
+  Bity 3-0: SYSTEM (System elektrod)
+    0 = System pojedynczy
+    1 = System 1 lampy podwojnej
+    2 = System 2 lampy podwojnej
+    3-15 = Zarezerwowane
+
+Przyklad: 0x11 = Trioda podwojna, system 1
+
+================================================================================
+6. KODOWANIE PARAMETROW (UTRZYMANO ORYGINALNE KODOWANIE Z v0.1)
+================================================================================
+
+Decyzja projektowa: MAPOWANIE OPARTE NA INDEKSACH (zgodnie z oryginalnym protokolem)
+
+UZASADNIENIE:
+- Firmware wykonuje proste wyszukiwania calkowitoliczbowe
+- Aplikacja desktopowa tworzy tablice mapowania
+- Standardowe kroki napiecia/pradu
+
+6.1 MAPOWANIE PARAMETROW (Komenda SET, TARGET=SETTINGS)
+--------------------------------------------------------
+
+P1: (TUBE_TYPE << 4) | HEAT_IDX
+
+  Bity 7-4: TUBE_TYPE
+  Bity 3-0: HEAT_IDX - Indeks poziomu zarzenia (0-15)
+  
+  Sugerowane mapowanie firmware:
+    0 = Wylaczone (0V)
+    1 = 5,0V
+    2 = 6,3V
+    3 = 12,6V
+    4 = 1,4V
+    5 = 2,0V
+    6 = 2,5V
+    7 = 4,0V
+    8-15 = Zarezerwowane dla dodatkowych standardowych napiec zarzenia
+  
+  Alternatywa: Jesli potrzebny tryb pradu zarzenia, uzyj wysokich wartosci TUBE_TYPE
+    (np., TUBE_TYPE >= 8 oznacza tryb pradowy, HEAT_IDX = indeks pradu)
+
+P2: UA_IDX - Indeks napiecia anody
+
+  UA = UA_IDX * 10V
+  Zakres: 0-31 --> 0-310V (pokrywa zakres firmware 0-300V)
+  
+  Mapowanie firmware:
+    uaset = (unsigned int)P2 * 10;
+    if (uaset > 300) uaset = 300;  // Ogranicz do maksimum
+
+P3: UG2_IDX - Indeks napiecia siatki 2
+
+  UG2 = UG2_IDX * 10V
+  Zakres: 0-31 --> 0-310V
+  
+  Mapowanie firmware:
+    ug2set = (unsigned int)P3 * 10;
+    if (ug2set > 300) ug2set = 300;
+
+P4: UG1_IDX - Indeks napiecia siatki 1 (tylko wartosci ujemne)
+
+  UG1 = -UG1_IDX * 0,5V
+  Zakres: 0-48 --> 0V do -24,0V
+  
+  Mapowanie firmware:
+    // firmware uzywa skali 0-240 gdzie 240 = -24,0V
+    ug1set = ug1ref - (P4 * 5);
+    if (ug1set < ug1zer) ug1set = ug1zer;
+
+P5: TMEAS_IDX - Indeks czasu pomiaru
+
+  T_meas = TMEAS_IDX * 100ms (lub * 500ms, do ustalenia)
+  Zakres: 0-63 --> 0 do 6,3s (lub 31,5s przy 500ms)
+  
+  Mapowanie firmware (uzywajac tykniec 250ms jak w linii 1222):
+    // Opcja 1: jednostki 100ms
+    tuh = (unsigned int)P5 * 240 / 100;  // Konwersja na tykniecia 250ms
+    
+    // Opcja 2: jednostki 500ms (zalecane dla dluzszych czasow nagrzewania)
+    tuh = (unsigned int)P5 * 2;  // P5=1 --> 500ms --> 2 tykniecia
+
+6.2 MAPOWANIE PARAMETROW (Komenda SET, TARGET=CATALOG)
+-------------------------------------------------------
+
+Gdy TARGET=0 (CATALOG):
+  P1-P5 sa typowo ustawione na 0x00 (uzyj domyslnych wartosci z katalogu)
+  
+  Opcjonalnie: P1-P5 moga nadpisac konkretne parametry katalogowe:
+    - Jesli P1 != 0, nadpisz ustawienie zarzenia
+    - Jesli P2 != 0, nadpisz Ua
+    - Jesli P3 != 0, nadpisz Ug2
+    - Jesli P4 != 0, nadpisz Ug1
+    - Jesli P5 != 0, nadpisz czas pomiaru
+  
+  To pozwala na szybkie dostrajanie parametrow bez pelnego trybu SETTINGS
+
+6.3 MAPOWANIE ODPOWIEDZI (Wyniki MEAS)
+---------------------------------------
+
+R1: IH_IDX - Indeks pradu zarzenia
+
+  IH = IH_IDX * 10mA
+  Zakres: 0-255 --> 0-2,55A
+  
+  Firmware (ih wynosi 0-250 reprezentujac 0-2,50A):
+    R1 = ih;  // Bezposrednia kopia, firmware juz w poprawnej skali
+
+R2: IA_IDX - Indeks pradu anody
+
+    IA = IA_IDX * 1mA
+    Zakres: 0-255 --> 0-255mA
+    
+    Firmware:
+      if (rangelcd == 0) {
+        // Niski zakres: ialcd wynosi 0-1000 (40,0mA w jednostkach 0,01mA)
+        R2 = (ialcd + 5) / 10;  // Konwersja na mA, zaokraglenie
+      } else {
+        // Wysoki zakres: ialcd wynosi 0-2000 (200,0mA w jednostkach 0,01mA)
+        R2 = (ialcd + 5) / 10;
+        if (R2 > 255) R2 = 255;  // Saturacja
+      }
+
+R3: IG2_IDX - Indeks pradu siatki 2
+
+  IG2 = IG2_IDX * 0,1mA
+  Zakres: 0-255 --> 0-25,5mA (firmware wspiera 0-40mA)
+  
+  Firmware (ig2lcd wynosi 0-4000 reprezentujac 0-40,00mA):
+    R3 = (ig2lcd + 20) / 40;  // Konwersja na jednostki 0,1mA
+
+R4: S_IDX - Indeks stromosci
+
+  S = S_IDX * 0,1 mA/V
+  Zakres: 0-255 --> 0-25,5 mA/V (firmware oblicza 0-999)
+  
+  Firmware (slcd wynosi 0-999 reprezentujac 0-99,9 mA/V):
+    R4 = (slcd + 5) / 10;  // Konwersja na jednostki 0,1 mA/V
+    if (R4 > 255) R4 = 255;
+
+R5: EXTENDED_STATUS (Rozszerzony status)
+
+  Bity 7-4: ALARM_DETAIL (jesli CTRL STATUS = ALARM)
+    Bit 7: OVERTE - Alarm temperatury
+    Bit 6: OVERIG - Alarm pradu siatki 2
+    Bit 5: OVERIA - Alarm pradu anody
+    Bit 4: OVERIH - Alarm pradu zarzenia
+  
+  Bity 3-0: Zarezerwowane na przyszlosc (jakosc pomiaru, flagi przepelnienia R/K, itp.)
+  
+  Firmware:
+    R5 = 0;
+    if (err & OVERTE) R5 |= 0x80;
+    if (err & OVERIG) R5 |= 0x40;
+    if (err & OVERIA) R5 |= 0x20;
+    if (err & OVERIH) R5 |= 0x10;
+
+UWAGA: R (rezystancja wewnetrzna) i K (wspolczynnik wzmocnienia) NIE SA wysylane
+       w ramce odpowiedzi. Aplikacja desktopowa oblicza je z S i pomiarow Ia/Ua
+       podczas curve tracing, lub wysyla wiele komend MEAS z roznymi napieciami
+       aby obliczyc te parametry.
+
+================================================================================
+7. KOMENDY
+================================================================================
+
+7.1 SET - USTAW PARAMETRY
+--------------------------
+
+Cel: Zaladuj parametry do pamieci RAM firmware (nie zapisywane do EEPROM)
+
+ZADANIE (PC --> Firmware):
+  CTRL: 0x20 (SET, normalny) lub 0x30 (SET, krzywa)
+  INDEX: Typ/system lampy (bity 7-4: typ, bity 3-0: system)
+  P1-P5: Parametry zgodnie z sekcja 6.1
+
+ODPOWIEDZ (Firmware --> PC):
+  CTRL: 0x02 (OK, tryb zdalny aktywny) lub 0x80 (ERROR)
+  INDEX: Echo INDEX z zadania
+  R1: Kod bledu jesli ERROR, w przeciwnym razie 0
+    0x02 = OUT_OF_RANGE (wartosc parametru nieprawidlowa)
+  R2-R5: Zarezerwowane (ustawic na 0)
+
+PRZYKLADY:
+
+Przyklad 1: Ustaw bezposrednie parametry dla pentody, system 1
+  PC wysyla:  [0x20][0x21][0x22][0x14][0x0F][0x04][0x08][CRC]
+              CMD=SET,SETTINGS, TYPE=Pentoda/Sys1
+              P1=0x22 (TUBE_TYPE=2, HEAT_IDX=2 --> zarzenie 6,3V)
+              P2=0x14 (20*10V = 200V Ua)
+              P3=0x0F (15*10V = 150V Ug2)
+              P4=0x04 (4*0,5V = -2,0V Ug1)
+              P5=0x08 (8*500ms = 4s nagrzewania)
+  
+  FW wysyla:  [0x22][0x21][0x00][0x00][0x00][0x00][0x00][CRC]
+              STATUS=OK,SETTINGS,REMOTE
+
+
+7.2 MEAS - WYKONAJ POMIAR
+--------------------------
+
+Cel: Wykonaj sekwencje pomiarowa i zwroc wyniki
+
+ZADANIE (PC --> Firmware):
+  CTRL: 0x60 (MEAS, SETTINGS) - WYMAGANE w trybie REMOTE
+        Dodaj 0x10 dla trybu CURVE (0x70)
+  INDEX: Typ/system lampy
+  P1-P5: Opcjonalne nadpisania parametrow (0x00 = uzyj biezacych wartosci z ostatniego SET)
+
+ODPOWIEDZ - Natychmiastowe ACK:
+  CTRL: 0x02 (OK, akceptuje) lub 0x41 (BUSY, odrzucono)
+  INDEX: Echo INDEX z zadania
+  R1-R5: 0x00
+
+ODPOWIEDZ - Pomiar zakonczony (wysylane automatycznie po zakonczeniu pomiaru):
+  CTRL: 0x02 (OK) lub 0xC2 (ALARM)
+  INDEX: Echo INDEX pomiaru
+  R1-R5: Wyniki zgodnie z sekcja 6.3
+
+TIMING:
+  - Typowy pomiar: 2-10 sekund (zalezy od czasu nagrzewania lampy)
+  - Tryb krzywej: Szybszy, zaklada ze zarzenie juz nagrzane
+  - PC powinien czekac na ramke odpowiedzi (blokujaco lub event-driven)
+
+INTEGRACJA FIRMWARE:
+  - Uzywaj istniejacego sekwencera pomiarowego (linie 877-925)
+  - Ustaw flage gdy otrzymano MEAS, wyczysc po zakonczeniu sekwencji
+  - Wyslij ramke odpowiedzi w linii 916 (gdzie obecnie txen=1)
+
+KRYTYCZNE: TRYB CATALOG ZABLOKOWANY W REMOTE
+  - CTRL: 0x40 (MEAS, CATALOG) jest ODRZUCANY w trybie REMOTE
+  - Zwraca ERROR z INVALID_MODE (0x05)
+  - Aplikacja desktopowa MUSI uzywac CTRL: 0x60 lub 0x70 (MEAS, SETTINGS)
+
+PRZYKLAD:
+
+Pomiar uzywajac ustawien z ostatniej komendy SET:
+  PC wysyla:  [0x60][0x21][0x00][0x00][0x00][0x00][0x00][CRC]
+              CMD=MEAS, tube_type=pentoda/sys1
+  
+  FW wysyla:  [0x02][0x21][0x00][0x00][0x00][0x00][0x00][CRC]
+              ACK: OK, rozpoczynam pomiar
+  
+  ... 5 sekund pozniej (nagrzewanie + pomiar) ...
+  
+  FW wysyla:  [0x22][0x21][0xFA][0x64][0x19][0x5A][0x00][CRC]
+              Wyniki: IH=250 (2,50A), IA=100 (100mA), 
+                      IG2=25 (2,5mA), S=90 (9,0mA/V)
+
+Przyklad 2: Curve tracing - zmiatanie Ua od 100V do 300V co 20V
+  
+  Krok 1: Ustaw stale parametry
+  PC wysyla:  [0x20][0x21][0x22][0x00][0x0F][0x04][0x02][CRC]
+              SET,SETTINGS: zarzenie 6,3V, Ug2=150V, Ug1=-2V, T=1s
+  
+  Krok 2: Petla dla kazdej wartosci Ua (100, 120, 140...300V)
+    Dla Ua=100V (indeks 10):
+      PC wysyla:  [0x70][0x21][0x00][0x0A][0x00][0x00][0x00][CRC]
+                  MEAS,SETTINGS,CURVE, nadpisz P2=10 (100V)
+      
+      FW wysyla:  [0x12][0x21][0xFA][0x28][0x0C][0x48][0x00][CRC]
+                  Wyniki: IH=250, IA=40mA, IG2=1,2mA, S=7,2mA/V
+    
+    Dla Ua=120V (indeks 12):
+      PC wysyla:  [0x70][0x21][0x00][0x0C][0x00][0x00][0x00][CRC]
+      FW wysyla:  [0x12][0x21][0xFA][0x32][0x0E][0x50][0x00][CRC]
+    
+    ... kontynuuj dla pozostalych punktow ...
+  
+  Aplikacja desktopowa uzywa wynikow do wykreslenia krzywej charakterystycznej Ia(Ua)
+
+7.3 READ - ODCZYTAJ STATUS
+---------------------------
+
+Cel: Zapytaj o biezacy status przyrzadu
+--------------------------------------
+
+ZADANIE:
+  CTRL: 0x80 (READ, SETTINGS)
+  INDEX: 0x00 (specjalny: zapytanie o status)
+  P1-P5: 0x00
+
+ODPOWIEDZ:
+  CTRL: Biezacy bajt statusu (zgodnie z sekcja 4)
+  INDEX: 0x00
+  R1: Biezace flagi alarmu/bledu (tak samo jak R5 w MEAS)
+  R2: Pozostaly czas pomiaru (jednostki: tykniecia 250ms)
+  R3: Ostatni zmierzony Ua (jako UA_IDX, *10V)
+  R4: Ostatni zmierzony Ia (jako IA_IDX, *1mA)
+  R5: Ostatni zmierzony Ug1 (jako UG1_IDX, *0,5V wartosc bezwzgledna)
+
+Przyklad:
+  PC wysyla:  [0x80][0x00][0x00][0x00][0x00][0x00][0x00][CRC]
+  FW wysyla:  [0x0E][0x00][0x00][0x14][0x14][0x64][0x04][CRC]
+              STATUS=OK,HEATING+MEASURING, T_pozostaly=5s, 
+              Ua=200V, Ia=100mA, Ug1=-2V
+
+7.4 ESC - WSTECZNA KOMPATYBILNOSC (TRYB ASCII)
+-----------------------------------------------
+
+Cel: Starszy dump ASCII LCD dla debugowania/logowania
+
+Firmware utrzymuje wsteczna kompatybilnosc z trybem ASCII. Po uruchomieniu,
+firmware wysyla:
+
+  Press <ESC> to get LCD copy
+  Nr Type Uh[V] Ih[mA] -Ug[V] Ua[V] Ia[mA] Ug2[V] Ig2[mA] S[mA/V] R[k] K[V/V]
+
+Gdy aplikacja desktopowa wysyla znak ESC (0x1B), firmware odpowiada tekstem
+ASCII zrzutu biezacej zawartosci ekranu LCD:
+
+  02  ECC81_G11  12.6     0   2.0  250   10.0    0   0.00   5.5  11.0    61
+
+Uzycie w aplikacji desktopowej:
+  - Opcjonalna funkcja dla okna logow debugowania
+  - Mozna dodac przycisk "Wyslij ESC" do zadania zrzutu LCD
+  - Przydatne do rozwiazywania problemow lub porownania z wyswietlaczem panelu
+  - NIE zakloca protokolu binarnego
+
+Uwaga: Po przejsciu w tryb REMOTE (wybor wpisu katalogowego 01_REMOTE), protokol
+       binarny przejmuje kontrole. ESC moze byc nadal uzywany ale nie jest
+       wymagany do normalnej pracy.
+
+================================================================================
+8. STATUS I BLEDY
+================================================================================
+
+8.1 Status ERROR (Bity 7-6 CTRL = 10)
+--------------------------------------
+R1 zawiera kod bledu:
+  0x00 = UNKNOWN_ERROR (Nieznany blad)
+  0x02 = OUT_OF_RANGE (wartosc parametru nieprawidlowa)
+  0x03 = CRC_ERROR (odebrana ramka ma nieprawidlowy CRC, desktop powinien ponowic)
+  0x04 = INVALID_COMMAND (nieprawidlowe bity CMD)
+  0x06 = HARDWARE_ERROR (ADC, PWM lub inny blad sprzetowy)
+
+Uwaga dotyczaca CRC_ERROR:
+  - Wskazuje ze ramka zostala odebrana ale sprawdzenie CRC nie powiodlo sie
+  - Komenda nie zostala wykonana (ochrona bezpieczenstwa)
+  - Pole INDEX w odpowiedzi echo odebranej wartosci (moze byc uszkodzone)
+  - Aplikacja desktopowa powinna ponowic komende
+  - Rozroznienie od timeout (brak odpowiedzi = utrata transmisji)
+
+8.2 Status ALARM (Bity 7-6 CTRL = 11)
+--------------------------------------
+R1 i R5 zawieraja bitmape alarmu (to samo kodowanie):
+  Bit 0 = OVERIH (przekroczony prad zarzenia, linia 610)
+  Bit 1 = OVERIA (przekroczony prad anody, linia 675)
+  Bit 2 = OVERIG (przekroczony prad siatki 2, linia 739)
+  Bit 3 = OVERTE (przekroczona temperatura radiatora, linia 812)
+  Bity 4-7 = Zarezerwowane
+
+Gdy wystapi alarm:
+  - Firmware natychmiast odcina napiecia (linie 609-611, 673-675, 737-738)
+  - Wysyla ramke odpowiedzi ALARM
+  - Ustawia bit ALARM_LATCH w flagach STATE
+  - PC powinien wyslac READ STATUS aby monitorowac powrot
+
+Kasowanie alarmu:
+  - Automatyczne gdy warunki sie znormalizuja (linie 615, 680, 744, 813)
+  - Lub: Wyslij SET ze wszystkimi parametrami = 0 aby wymusic wylaczenie napiec
+
+================================================================================
+
+UWAGA: Wytyczne implementacyjne firmware zostaly wyodrebnione do osobnego pliku:
+       VTTester_Firmware_Implementation_PL.txt
+
+10. WZORZEC UZYCIA CURVE TRACING
+================================================================================
+
+1. JEDNORAZOWE USTAWIENIE: Ustaw parametry stale
+   Komenda: SET (TARGET=SETTINGS)
+   Ustaw: Napiecie zarzenia, Ug2, czas pomiaru
+   Te pozostaja stale dla calego zmiatania krzywej
+
+2. DLA KAZDEJ WARTOSCI Ug1 (petla zewnetrzna, typowo 5-10 wartosci):
+   a. Komenda: SET z nowym UG1_IDX
+   b. DLA KAZDEJ WARTOSCI Ua (petla wewnetrzna, typowo 20-50 wartosci):
+      i.   Komenda: SET z nowym UA_IDX
+      ii.  Komenda: MEAS z CURVE=1
+      iii. Odbierz odpowiedz z wartosciami Ia, Ig2, S
+      iv.  Przechowaj punkt danych (Ua, Ia) dla biezacego Ug1
+
+3. WYKRESL WYNIKI:
+   - Wygeneruj rodzine krzywych: Ia(Ua) dla kazdego Ug1
+   - Oblicz dodatkowe parametry jesli potrzeba
+   - Porownaj do charakterystyk z noty katalogowej
+
+Przyklad: Charakterystyka pentody (5 krzywych, 30 punktow kazda)
+
+  // Ustawienie
+  SET: Uh=6,3V, Ug2=150V, Tmeas=0,5s
+  
+  for (ug1 = -1,0V do -5,0V, krok -1,0V) {  // 5 krzywych
+    SET: nowa wartosc Ug1
+    
+    for (ua = 50V do 300V, krok 10V) {  // 25 punktow na krzywa
+      SET: nowa wartosc Ua
+      MEAS: CURVE=1
+      czekaj na odpowiedz
+      zapisz punkt danych (ua, ia)
+    }
+  }
+  
+  Laczna liczba pomiarow: 5 * 25 = 125
+  Calkowity czas: 125 * 0,5s ≈ 63 sekundy
