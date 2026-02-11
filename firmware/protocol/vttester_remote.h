@@ -11,8 +11,8 @@
 #define VTTESTER_FRAME_LEN 8
 
 /* --- Error codes (ACK R1 for SET, or when STATUS=ERROR) --- */
-#define VTTESTER_ERR_OK              0x00
-#define VTTESTER_ERR_UNKNOWN         0x01
+#define VTTESTER_ERR_OK             0x00
+#define VTTESTER_ERR_UNKNOWN        0x01
 #define VTTESTER_ERR_OUT_OF_RANGE   0x02
 #define VTTESTER_ERR_CRC            0x03
 #define VTTESTER_ERR_INVALID_CMD    0x04
