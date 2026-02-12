@@ -125,9 +125,20 @@ Czyli: **protokol** parsuje ramki wejsciowe i buduje ACK/MEAS; **display** tylko
 
 ---
 
-## 5. Budowanie i testy
+## 5. Srodowisko budowania i testy
 
-- **Firmware (AVR):** `make` w `firmware/` -> `TTesterLCD32.hex`. `make clean`, `make size` jak zwykle.
-- **Testy na hoście:** `make test` w `firmware/` (lub `make run` w `firmware/test/`) -> kompilacja i uruchomienie test_runner; "OK: N tests" i exit 0 oznacza, ze wszystko przeszlo.
+**Do zbudowania firmware (AVR) potrzebne sa:**
+- **avr-gcc** — kompilator C dla Atmela AVR (np. ATmega32).
+- **avr-binutils** — `avr-objcopy`, `avr-size`; sluza do wygenerowania pliku `.hex` i raportu rozmiaru.
+- **Opcjonalnie:** **avrdude** (i programator) do wgrania firmware; odkomentuj i ustaw cel `flash` w Makefile.
 
-Po kazdej zmianie w protokole lub utils uruchom `make test`, zeby potwierdzic zachowanie.
+W Debian/Ubuntu: `sudo apt install gcc-avr binutils-avr`. W macOS: `brew install avr-gcc` (lub cross-pack z toolchaina AVR).
+
+**Testy jednostkowe na komputerze (bez AVR):**
+- **gcc** — standardowy kompilator C; zestaw testow w `test/` buduje sie zwyklym `gcc` i nie wymaga toolchaina AVR.
+
+**Polecenia:**
+- **Firmware (AVR):** `make` w `firmware/` -> `bin/TTesterLCD32.hex`. `make clean`, `make size` jak zwykle. Wszystkie pliki .o i binaria trafiaja do katalogu `bin/`.
+- **Testy na komputerze:** `make test` w `firmware/` (lub `make run` w `firmware/test/`) -> kompilacja i uruchomienie test_runner; "OK: N tests" i exit 0 oznacza, ze wszystko przeszlo.
+
+Po kazdej zmianie w protokole, display, control lub utils uruchom `make test`, zeby potwierdzic zachowanie.

@@ -124,9 +124,20 @@ So: **protocol** parses incoming frames and builds outgoing ACK/MEAS; **display*
 
 ---
 
-## 5. Build and test
+## 5. Build environment and test
 
-- **Firmware (AVR):** `make` in `firmware/` → `TTesterLCD32.hex`. `make clean`, `make size` as usual.
+**Required to build the firmware (AVR):**
+- **avr-gcc** — C compiler for Atmel AVR (e.g. ATmega32).
+- **avr-binutils** — `avr-objcopy`, `avr-size`; used to produce `.hex` and report size.
+- **Optional:** **avrdude** (and a programmer) to flash the device; uncomment and set the `flash` target in the Makefile.
+
+On Debian/Ubuntu: `sudo apt install gcc-avr binutils-avr`. On macOS: `brew install avr-gcc` (or cross-pack from AVR toolchain).
+
+**Host unit tests (no AVR):**
+- **gcc** — standard C compiler; the test suite in `test/` builds with plain `gcc` and does not need the AVR toolchain.
+
+**Build commands:**
+- **Firmware (AVR):** `make` in `firmware/` → `bin/TTesterLCD32.hex`. `make clean`, `make size` as usual. All object and binary files go under `bin/`.
 - **Host tests:** `make test` in `firmware/` (or `make run` in `firmware/test/`) → compile and run test_runner; “OK: N tests” and exit 0 means all passed.
 
-After any change to protocol or utils, run `make test` to confirm behaviour.
+After any change to protocol, display, control, or utils, run `make test` to confirm behaviour.

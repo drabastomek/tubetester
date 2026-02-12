@@ -9,3 +9,5 @@ vttester_protocol_example.*
 *.hex
 *.o
 bin/
+
+*.zip
