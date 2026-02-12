@@ -16,7 +16,11 @@ LDFLAGS = -mmcu=$(MCU) -Wl,--gc-sections
 SRCS    = TTesterLCD32.c
 # Config: ROM tube catalog and constants
 SRCS   += config/config.c
-# Utils: helper functions (UART, delay, zersrk, liczug1)
+# Display: LCD output and refresh from buf[]
+SRCS   += display/display.c
+# Control: menu, katalog, editing, calculations (fills buf[])
+SRCS   += control/control.c
+# Utils: helper functions (UART, delay, zersrk, liczug1, int2asc)
 SRCS   += utils/utils.c
 # Protocol (standalone C, no AVR-specific deps in protocol layer)
 SRCS   += protocol/vttester_remote.c

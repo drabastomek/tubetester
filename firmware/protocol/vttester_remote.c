@@ -4,6 +4,7 @@
  */
 
 #include "vttester_remote.h"
+#include "config/config.h"
 #ifdef __AVR__
 #include <avr/pgmspace.h>
 #endif
@@ -53,11 +54,14 @@ static void frame_append_crc(unsigned char *f)
 /* HEAT_IDX 0..7 -> uhdef (0.1V). 0=off, 1=1.4, 2=2.0, 3=2.5, 4=4.0, 5=5.0, 6=6.3, 7=12.6 */
 static const unsigned char heat_voltage[8] = { 0, 14, 20, 25, 40, 50, 63, 126 };
 
+/* Simplified SET encoding (no resolution bits): P1 low nibble = heat 0..7; P2/P3 = byte*10 V, max 300 V;
+   P4 -> ug1def = P4*5 (0.1V magnitude, 0..240; 240 = -24 V, same as old code and protocol).
+   P5 = 0..63, tuh_ticks = P5*2 (500ms/step). Main app: ug1set = liczug1(parsed.set.ug1def). */
 unsigned char vttester_parse_message(const unsigned char *frame, vttester_parsed_t *out)
 {
     unsigned char cmd, p1, p2, p3, p4, p5;
     unsigned char heat_idx;
-    unsigned int ua_v, ug2_v, ug1_mag;
+    unsigned int ua_v, ug2_v, p4_val_01;
 
     out->cmd = VTTESTER_CMD_NONE;
     out->index = frame[1];
@@ -66,12 +70,12 @@ unsigned char vttester_parse_message(const unsigned char *frame, vttester_parsed
     out->set.error_value = 0;
 
     if (crc8_compute(frame, 7) != frame[7]) {
-        out->err_code = VTTESTER_ERR_CRC;
+        out->err_code = VTTESTER_ERR_CRC;  /* Frame corrupted; reject so host can retry. */
         return VTTESTER_CMD_NONE;
     }
     cmd = (frame[0] >> 6) & 0x03;
     if (!(frame[0] & 0x20)) {
-        out->err_code = VTTESTER_ERR_INVALID_CMD;
+        out->err_code = VTTESTER_ERR_INVALID_CMD;  /* Command byte bit 5 must be set (valid CMD). */
         return VTTESTER_CMD_NONE;
     }
 
@@ -80,17 +84,18 @@ unsigned char vttester_parse_message(const unsigned char *frame, vttester_parsed
         return VTTESTER_CMD_MEAS;
     }
 
+    // ERROR HANDLING
     if (cmd != CMD_SET) {
-        out->err_code = VTTESTER_ERR_INVALID_CMD;
+        out->err_code = VTTESTER_ERR_INVALID_CMD;  /* Unknown command (not SET or MEAS). */
         return VTTESTER_CMD_NONE;
     }
 
     p1 = frame[2]; p2 = frame[3]; p3 = frame[4]; p4 = frame[5]; p5 = frame[6];
 
     heat_idx = p1 & 0x0F;
-    if (heat_idx > 7) {
+    if (heat_idx > VTTESTER_SET_HEAT_IDX_MAX) {
         out->cmd = VTTESTER_CMD_SET;
-        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;
+        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;  /* P1: heater index only 0..7. */
         out->set.error_param = 1;
         out->set.error_value = heat_idx;
         return VTTESTER_CMD_SET;
@@ -98,45 +103,46 @@ unsigned char vttester_parse_message(const unsigned char *frame, vttester_parsed
     out->set.uhdef = heat_voltage[heat_idx];
     out->set.ihdef = 0;
 
-    ua_v = (unsigned int)p2 * 10u;
-    if (ua_v > 300u) {
+    ua_v = (unsigned int)p2 * VTTESTER_SET_UA_SCALE;
+    if (ua_v > (unsigned int)VTTESTER_SET_UA_MAX) {
         out->cmd = VTTESTER_CMD_SET;
-        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;
+        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;  /* P2: Ua 10 V steps, max 300 V. */
         out->set.error_param = 2;
         out->set.error_value = ua_v;
         return VTTESTER_CMD_SET;
     }
     out->set.uadef = ua_v;
 
-    ug2_v = (unsigned int)p3 * 10u;
-    if (ug2_v > 300u) {
+    ug2_v = (unsigned int)p3 * VTTESTER_SET_UA_SCALE;
+    if (ug2_v > (unsigned int)VTTESTER_SET_UG2_MAX) {
         out->cmd = VTTESTER_CMD_SET;
-        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;
+        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;  /* P3: Ug2 10 V steps, max 300 V. */
         out->set.error_param = 3;
         out->set.error_value = ug2_v;
         return VTTESTER_CMD_SET;
     }
     out->set.ug2def = ug2_v;
 
-    ug1_mag = (unsigned int)p4 * 5u;
-    if (ug1_mag > 240u) {
+    p4_val_01 = (unsigned int)p4 * VTTESTER_SET_UG1_P4_STEP;
+    if (p4_val_01 > (unsigned int)VTTESTER_SET_UG1_MAX) {
         out->cmd = VTTESTER_CMD_SET;
-        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;
+        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;  /* P4: ug1def in 0.1V magnitude, max 240 (= -24 V). */
         out->set.error_param = 4;
         out->set.error_value = (unsigned int)p4;
         return VTTESTER_CMD_SET;
     }
-    out->set.ug1def = 240 - (unsigned char)ug1_mag;
+    /* Same as old code: ug1def 0..240 in 0.1V units, 240 = -24.0 V (liczug1(240) in main app). */
+    out->set.ug1def = (unsigned char)p4_val_01;
 
-    if (p5 > 63) {
+    if (p5 > VTTESTER_SET_P5_MAX) {
         out->cmd = VTTESTER_CMD_SET;
-        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;
+        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;  /* P5: tuh index 0..63 (500 ms per step). */
         out->set.error_param = 5;
         out->set.error_value = p5;
         return VTTESTER_CMD_SET;
     }
-    out->err_code = VTTESTER_ERR_OK;
-    out->set.tuh_ticks = (unsigned int)p5 * 2u;
+    out->err_code = VTTESTER_ERR_OK;  /* All SET params within range. */
+    out->set.tuh_ticks = (unsigned int)p5 * VTTESTER_SET_TUH_TICK_SCALE;
 
     out->cmd = VTTESTER_CMD_SET;
     return VTTESTER_CMD_SET;

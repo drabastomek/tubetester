@@ -10,5 +10,7 @@ void cstr2rs(const char *q);
 void delay(unsigned char opoz);
 void zersrk(void);
 unsigned int liczug1(unsigned int pug1);
+/* Write 4 decimal digits (units..thousands) into ascii[0..3]. */
+void int2asc(unsigned int liczba, unsigned char *ascii);
 
 #endif /* VTTESTER_UTILS_H */

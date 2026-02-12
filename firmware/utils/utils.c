@@ -50,3 +50,13 @@ unsigned int liczug1(unsigned int pug1)
    licz /= vref;
    return (unsigned int)licz;
 }
+
+void int2asc(unsigned int liczba, unsigned char *ascii)
+{
+   unsigned char i, t;
+   for (i = 0; i < 4; i++) {
+      t = (unsigned char)(liczba % 10);
+      liczba /= 10;
+      ascii[i] = '0' + t;
+   }
+}

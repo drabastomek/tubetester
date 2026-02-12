@@ -8,15 +8,12 @@
 //*************************************************************
 
 #include <avr/io.h>
-#include <avr/eeprom.h>
 #include <avr/interrupt.h>
 #include "config/config.h"
 #include "protocol/vttester_remote.h"
 #include "utils/utils.h"
-
-/* avr-libc EEPROM API compatibility with IAR-style EEPROM_READ/EEPROM_WRITE */
-#define EEPROM_READ(addr, var)   eeprom_read_block((void*)&(var), (const void*)(addr), sizeof(var))
-#define EEPROM_WRITE(addr, val) eeprom_write_block((const void*)&(val), (void*)(addr), sizeof(val))
+#include "display/display.h"
+#include "control/control.h"
 
 #pragma data:data
 
@@ -701,59 +698,6 @@ ISR(TIMER2_COMP_vect)
    }
 }
 
-//*************************************************************************
-//                 O B S L U G A   W Y S W I E T L A C Z A
-//*************************************************************************
-
-void cmd2lcd( char rs, char bajt )
-{
-   delay( 1 );
-   if( rs ) { RSSET; } else { RSRST; }
-   PORTC &= 0x0f;
-   PORTC |= ( bajt & 0xf0 );
-   ENSET;
-   NOP2; NOP2; NOP2; NOP2;
-   ENRST;
-   PORTC &= 0x0f;
-   PORTC |= ( (bajt << 4) & 0xf0 );
-   ENSET;
-   NOP2; NOP2; NOP2; NOP2;
-   ENRST;
-}
-
-void gotoxy( char x, char y )
-{
-   cmd2lcd( 0, 0x80 | (64 * (y % 2) + 20 * (y / 2) + x) ); // 4x20
-}
-
-void char2lcd( char f, char c )
-{
-   cmd2lcd( 1, ( (f == 1) && (takt == 0) )? ' ': c );
-}
-
-void cstr2lcd( char f, const unsigned char* c )
-{
-   while( *c ) { char2lcd( f, *c ); c++; }
-}
-
-void str2lcd( char f, unsigned char* c )
-{
-   while( *c ) { char2lcd( f, *c ); c++; }
-}
-
-void int2asc( unsigned int liczba )
-{
-   unsigned char
-   i, temp;
-
-   for( i = 0; i < 4; i++ )
-   {
-      temp = liczba % 10;
-      liczba /= 10;
-      ascii[i] = '0' + temp;
-   }
-}
-
 //*************************************************************
 //      Program glowny
 //*************************************************************
@@ -840,28 +784,7 @@ void main(void)
    SEI;                                    // wlacz przerwania
 
 //***** Inicjalizacja wyswietlacza LCD ************************
-
-   delay( 30 );                                        // 30ms
-   cmd2lcd( 0, 0x28 );
-   cmd2lcd( 0, 0x06 );
-   cmd2lcd( 0, 0x0c );
-   cmd2lcd( 0, 0x01 );
-   cmd2lcd( 0, 0x40 );
-
-   cmd2lcd( 0, (0x40 | 0x00) ); for( i = 0; i < 8; i++ ) { cmd2lcd( 1, cyrB[i] ); }
-   cmd2lcd( 0, (0x40 | 0x08) ); for( i = 0; i < 8; i++ ) { cmd2lcd( 1, cyrC[i] ); }
-   cmd2lcd( 0, (0x40 | 0x10) ); for( i = 0; i < 8; i++ ) { cmd2lcd( 1, cyrD[i] ); }
-   cmd2lcd( 0, (0x40 | 0x18) ); for( i = 0; i < 8; i++ ) { cmd2lcd( 1, cyrF[i] ); }
-   cmd2lcd( 0, (0x40 | 0x20) ); for( i = 0; i < 8; i++ ) { cmd2lcd( 1, cyrG[i] ); }
-   cmd2lcd( 0, (0x40 | 0x28) ); for( i = 0; i < 8; i++ ) { cmd2lcd( 1, cyrI[i] ); }
-   cmd2lcd( 0, (0x40 | 0x30) ); for( i = 0; i < 8; i++ ) { cmd2lcd( 1, cyrP[i] ); }
-   cmd2lcd( 0, (0x40 | 0x38) ); for( i = 0; i < 8; i++ ) { cmd2lcd( 1, cyrZ[i] ); }
-
-   gotoxy( 0, 0 ); cstr2lcd( 0, "   VTTester 2.06    " );
-   gotoxy( 0, 1 ); cstr2lcd( 0, "Tomasz|Adam |       " );
-   gotoxy( 0, 2 ); cstr2lcd( 0, "Gumny |Tatus|       " );
-   gotoxy( 0, 3 ); cstr2lcd( 0, "forum-trioda.pl/    " );
-
+   display_init();
    for( i = 0; i < 20; i++ ) { WDR; if( i == 19 ) { SPKON; } delay( 100 ); SPKOFF; };
 
 // 01234567890123456789
@@ -893,6 +816,7 @@ void main(void)
                unsigned char cmd, i;
                rx_proto_ready = 0;
                cmd = vttester_parse_message( rx_proto_buf, &parsed );
+               // if command is SET, check if it's valid and send ACK or ERR
                if( cmd == VTTESTER_CMD_SET )
                {
                   if( parsed.set.error_param == 0 && typ == 1 )
@@ -910,10 +834,12 @@ void main(void)
                      tuh = (unsigned int)parsed.set.tuh_ticks * 240u / 60u;
                      lamptem = lamprem;
                   }
+                  // send ACK or ERR
                   vttester_send_response( tx_proto_buf, parsed.index,
                      parsed.err_code, parsed.set.error_param, parsed.set.error_value );
                   for( i = 0; i < VTTESTER_FRAME_LEN; i++ ) char2rs( tx_proto_buf[i] );
                }
+               // if command is MEAS, send OK and start measurement
                else if( cmd == VTTESTER_CMD_MEAS )
                {
                   vttester_send_response( tx_proto_buf, parsed.index, VTTESTER_ERR_OK, 0, 0 );
@@ -929,6 +855,7 @@ void main(void)
                   for( i = 0; i < VTTESTER_FRAME_LEN; i++ ) char2rs( tx_proto_buf[i] );
                }
             }
+            // if measurement is ready, send the result
             if( remote_meas_ready )
             {
                unsigned char alarm_bits = 0, i;
@@ -949,566 +876,13 @@ void main(void)
          }
 
 //***** Wyswietlenie zawartosci bufora ************************
-
-         gotoxy( 0, 0 );                              // Numer
-         str2lcd( ((adr == 0) && (start != (FUH+2))), &buf[0] );
-
-         gotoxy( 3, 0 );                              // Nazwa
-         char2lcd( 0, ' ' );
-
-         for( i = 0; i < 9; i++ ) char2lcd( (((adr-1) == i) || ((i == 7) && (start == (FUH+2)) && ((buf[11] == '1') || (buf[11] == '2')) )), buf[i+4] );
-         gotoxy( 13, 0 );
-         cstr2lcd( 0, " G" );
-         char2lcd( (adr == 10), '-' );
-         str2lcd( (adr == 10), &buf[24] );                // Ug1
-
-         gotoxy( 0, 1 );
-         cstr2lcd( 0, "H=" );
-         str2lcd( (adr == 11), &buf[14] );                 // Uh
-         cstr2lcd( 0, "V A=" );
-         str2lcd( (adr == 13), &buf[29] );                 // Ua
-         cstr2lcd( 0, " G2=" );
-         str2lcd( (adr == 15), &buf[39] );                // Ug2
-
-         gotoxy( 0, 2 );
-         errcode = ' ';
-         if( (err & OVERIH) == OVERIH ) errcode = 'H';
-         if( (err & OVERIA) == OVERIA ) errcode = 'A';
-         if( (err & OVERIG) == OVERIG ) errcode = 'G';
-         if( (err & OVERTE) == OVERTE ) errcode = 'T';
-         char2lcd( 0, errcode );                           // Err
-         char2lcd( 0, ' ' );
-         str2lcd( (adr == 12), &buf[19] );                 // Ih
-         cstr2lcd( 0, "mA " );
-         str2lcd( (adr == 14), &buf[33] );                 // Ia
-         char2lcd( 0, ' ' );
-         str2lcd( (adr == 16), &buf[43] );                // Ig2
-
-         gotoxy( 0, 3 );
-         if( typ > 1 )
-         {
-            gotoxy( 0, 3 );
-            cstr2lcd( 0, "S=" );
-            str2lcd( (adr == 17), &buf[49] );                 // S
-
-            gotoxy( 6, 3 );
-            cstr2lcd( 0, " R=" );
-            str2lcd( (adr == 18), &buf[54] );                 // R
-
-            gotoxy( 13, 3 );
-            if( (start <= (FUH+2)) || (dusk0 == DMAX) )
-            {
-               cstr2lcd( 0, " K=" );
-               str2lcd( (adr == 19), &buf[59] );                 // K
-            }
-            else
-            {
-               cstr2lcd( 0, " T=" );
-               int2asc( start >> 2 );
-
-               if( ascii[2] != '0' )
-               {
-                  char2lcd( 0, ascii[2] );
-                  char2lcd( 0, ascii[1] );
-               }
-               else
-               {
-                  char2lcd( 0, ' ' );
-                  if( ascii[1] != '0' )
-                  {
-                     char2lcd( 0, ascii[1] );
-                  }
-                  else
-                  {
-                     char2lcd( 0, ' ' );
-                  }
-               }
-               char2lcd( 0, ascii[0] );
-               char2lcd( 0, 's' );
-            }
-         }
-         else
-         {
-            if( typ == 0 ) { cstr2lcd( 0, "                    " ); } else { cstr2lcd( 0, " TX/RX: 9600,8,N,1  " ); }
-         }
+         display_refresh();
       }
       GICR = BIT(INT1);                             // wlacz INT1
       if( (err != 0) && ((start == 0) || (start > (TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2))) ) { stop = 1; start = (TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2); } // awaryjne wylaczenie
 
-//***** Wyswietlanie Numeru ***********************************
-      if( adr == 0 )                      // ustawianie numeru
-      {
-         int2asc( typ );
-         buf[0] = ascii[2];
-         buf[1] = ascii[1];
-         buf[2] = ascii[0];
-
-//***** Pobieranie nowej Nazwy ************************************
-         if( typ < FLAMP )
-         {
-            if( typ == 1 )
-            {
-               lamptem = lamprem;
-            }
-            else
-            {
-               load_lamprom( typ, &lamptem );
-               if( (typ != lastyp) && (start != (FUH+2)) ) // zmiana typu, poza restartem
-               {
-                 load_lamprom( 1, &lamprem );
-                 anode = 28;
-                 ug1set = ug1zer = ug1ref = liczug1( 240 );    // -24.0V
-                 uhset = ihset = uaset = ug2set = 0;
-               }
-            }
-            tuh = (lamptem.nazwa[8] - '0') * 240;    // 240 = 1min
-            for( i = 0; i < 9; i++ ) buf[i+4] = (unsigned char)lamptem.nazwa[i];
-         }
-         else
-         {
-            EEPROM_READ((int)&lampeep[typ-FLAMP], lamptem);
-            tuh = (lamptem.nazwa[8] - 27) * 240;     // 240 = 1min
-            for( i = 0; i < 9; i++ ) buf[i+4] = AZ[(unsigned char)lamptem.nazwa[i]];
-         }
-         lastyp = typ;                           //zapamietaj ostatnio pobrany typ
-         nowa = 1;                     // zaktualizowano nazwe
-      }
-
-      if( (typ == 0) || (typ == 1) )
-      {
-         anode = lamptem.nazwa[7];
-         buf[11] = AZ[anode];
-      }
-
-//***** Edycja Nazwy ******************************************
-      if( typ >= FLAMP )
-      {
-         if( (adr > 0) && (adr < 10) )            // edycja nazwy
-         {
-//***** Wyswietlanie edytowanej Nazwy *************************
-            if( czytaj == 1 ) EEPROM_READ((int)&lampeep[typ-FLAMP].nazwa, lamptem.nazwa);
-            for( i = 0; i < 9; i++ ) buf[i+4] = AZ[(unsigned char)lamptem.nazwa[i]];
-            czytaj = 0;
-            if( dusk0 == DMAX ) zapisz = 1;
-            if( (nodus == DMIN) && (zapisz == 1) )
-            {
-               EEPROM_WRITE((int)&lampeep[typ-FLAMP].nazwa[adr-1], lamptem.nazwa[adr-1]);
-               zapisz = 0;
-            }
-         }
-         else
-         {
-            czytaj = 1;
-         }
-      }
-//***** Ustawianie Ug1 ****************************************
-
-      ug1ref = liczug1( lamptem.ug1def );               // przelicz Ug1
-
-      temp = mug1adc;
-      temp *= 725;
-      licz = 40960000;
-      if( licz > temp ) { licz -= temp; } else licz = 0;
-      licz >>= 16;     //   /= 65536;
-      licz *= vref;
-      licz /= 1000;
-      ug1 = (unsigned int)licz;
-      if( start == (FUH+2) ) licz = ug1lcd;
-      if( (adr == 0) || (adr == 10) )
-      {
-         if( dusk0 == DMAX )
-         {
-            licz = lamptem.ug1def;              // 0..250..300
-            zapisz = 1;
-         }
-         if( (nodus == DMIN) && (adr == 10) && (zapisz == 1) )
-         {
-            zapisz = 0;
-            if( typ == 0 )                           // SUPPLY
-            {
-               ug1set = ug1ref;
-            }
-            if( typ >= FLAMP )         // ELAMP
-            {
-               EEPROM_WRITE((int)&lampeep[typ-FLAMP].ug1def, lamptem.ug1def);
-            }
-         }
-      }
-//***** Wyswietlanie Ug1 **************************************
-      int2asc( (unsigned int)licz );
-      buf[24] = (ascii[2] != '0')? ascii[2]: ' ';
-      buf[25] = ascii[1];
-      buf[26] = '.';
-      buf[27] = ascii[0];
-//***** Ustawianie Uh *****************************************
-      licz = muhadc;
-      licz *= vref;
-      licz >>= 14;   //  /= 16384;                      // 0..200
-      temp = mihadc;   // poprawka na spadek napiecia na boczniku
-      temp *= vref;
-      temp >>= 16;         //    /= 65536;
-      if( licz > temp ) { licz -= temp; } else licz = 0;
-      licz /= 10;
-      uh = (unsigned int)licz;
-      if( start == (FUH+2) ) licz = uhlcd;
-      if( (adr == 0) || (adr == 11) )
-      {
-         if( dusk0 == DMAX )
-         {
-            licz = lamptem.uhdef;
-            zapisz = 1;
-         }
-         if( (nodus == DMIN) && (adr == 11) && (zapisz == 1) )
-         {
-            zapisz = 0;
-            if( typ == 0 )                           // SUPPLY
-            {
-               uhset = lamptem.uhdef;
-               ihset = lamptem.ihdef = 0;
-            }
-            if( typ >= FLAMP )                        // ELAMP
-            {
-               EEPROM_WRITE((int)&lampeep[typ-FLAMP].uhdef, lamptem.uhdef);
-            }
-         }
-      }
-//***** Wyswietlanie Uh ***************************************
-      int2asc( (unsigned int)licz );
-      buf[14] = (ascii[2] != '0')? ascii[2]: ' ';
-      buf[15] = ascii[1];
-      buf[16] = '.';
-      buf[17] = ascii[0];
-//***** Ustawianie Ih *****************************************
-      licz = mihadc;
-      licz *= vref;
-      licz >>= 15;    //   /= 32768;                  // 0..250
-      ih = (unsigned int)licz;
-      if( start == (FUH+2) ) licz = ihlcd;
-      if( (adr == 0) || (adr == 12) )
-      {
-         if( dusk0 == DMAX )
-         {
-            licz = lamptem.ihdef;
-            zapisz = 1;
-         }
-         if( (nodus == DMIN) && (adr == 12) && (zapisz == 1) )
-         {
-            zapisz = 0;
-            if( typ == 0 )                           // SUPPLY
-            {
-               ihset = lamptem.ihdef;
-               uhset = lamptem.uhdef = 0;
-            }
-            if( typ >= FLAMP )     // ELAMP
-            {
-               EEPROM_WRITE((int)&lampeep[typ-FLAMP].ihdef, lamptem.ihdef);
-            }
-         }
-      }
-//***** Wyswietlanie Ih ***************************************
-      int2asc( (unsigned int)licz );
-      if( ascii[2] != '0' )
-      {
-         buf[19] = ascii[2];
-         buf[20] = ascii[1];
-         buf[21] = ascii[0];
-      }
-      else
-      {
-         buf[19] = ' ';
-         if( ascii[1] != '0' )
-         {
-            buf[20] = ascii[1];
-            buf[21] = ascii[0];
-         }
-         else
-         {
-            buf[20] = ' ';
-            buf[21] = (ascii[0] != '0')? ascii[0]: ' ';
-         }
-      }
-      buf[22] = '0';
-//***** Ustawianie Ua *****************************************
-      licz = muaadc;
-      licz *= vref;
-      licz /= 107436;
-      ua = (unsigned int)licz;
-      if( start == (FUH+2) ) licz = ualcd;
-      if( (adr == 0) || (adr == 13) )
-      {
-         if( dusk0 == DMAX )
-         {
-            licz = lamptem.uadef;
-            zapisz = 1;
-         }
-         if( (nodus == DMIN) && (adr == 13) && (zapisz == 1) )
-         {
-            zapisz = 0;
-            if( typ == 0 )                           // SUPPLY
-            {
-               uaset = lamptem.uadef;
-            }
-            if( typ >= FLAMP )     // ELAMP
-            {
-               EEPROM_WRITE((int)&lampeep[typ-FLAMP].uadef, lamptem.uadef);
-            }
-         }
-      }
-//***** Wyswietlanie Ua ***************************************
-      int2asc( (unsigned int)licz );
-      if( ascii[2] != '0' )
-      {
-         buf[29] = ascii[2];
-         buf[30] = ascii[1];
-      }
-      else
-      {
-         buf[29] = ' ';
-         buf[30] = (ascii[1] != '0')? ascii[1]: ' ';
-      }
-      buf[31] = ascii[0];
-//***** Ustawianie Ia ***************************************
-      licz = miaadc;
-      licz *= vref;
-      licz >>= 14;       //    /= 16384;
-      temp = muaadc;
-      temp *= vref;
-      if( range == 0 ) { temp *= 10; }
-      temp /= 4369064;
-      if( licz > temp ) { licz -= temp; } else licz = 0;
-      ia = (unsigned int)licz;
-      if( start == (FUH+2) ) licz = ialcd;
-      rangedef = 0;
-      if( (adr == 0) || (adr == 14) )
-      {
-         if( dusk0 == DMAX )
-         {
-            licz = lamptem.iadef;
-            rangedef = 1;
-            zapisz = 1;
-         }
-         if( (nodus == DMIN) && (adr == 14) && (zapisz == 1) )
-         {
-            zapisz = 0;
-            if( typ >= FLAMP )  // ELAMP
-            {
-               EEPROM_WRITE((int)&lampeep[typ-FLAMP].iadef, lamptem.iadef);
-            }
-         }
-      }
-//***** Wyswietlanie Ia ***************************************
-      int2asc( (unsigned int)licz );
-      if( (rangedef == 0) && (((start != (FUH+2)) && (range == 0)) || ((start == (FUH+2)) && (rangelcd == 0))) )
-      {
-         buf[33] = (ascii[3] != '0')? ascii[3]: ' ';
-         buf[34] = ascii[2];
-         buf[35] = '.';
-         buf[36] = ascii[1];
-         buf[37] = ascii[0];
-      }
-      else
-      {
-         if( ascii[3] != '0' )
-         {
-            buf[33] = ascii[3];
-            buf[34] = ascii[2];
-         }
-         else
-         {
-            buf[33] = ' ';
-            buf[34] = (ascii[2] != '0')? ascii[2]: ' ';
-         }
-         buf[35] = ascii[1];
-         buf[36] = '.';
-         buf[37] = ascii[0];
-      }
-//***** Ustawianie Ug2 ****************************************
-      licz = mug2adc;
-      licz *= vref;
-      licz /= 107436;
-      ug2 = (unsigned int)licz;
-      if( start == (FUH+2) ) licz = ug2lcd;
-      if( (adr == 0) || (adr == 15) )
-      {
-         if( dusk0 == DMAX )
-         {
-            licz = lamptem.ug2def;
-            zapisz = 1;
-         }
-         if( (nodus == DMIN) && (adr == 15) && (zapisz == 1) )
-         {
-            zapisz = 0;
-            if( typ == 0 )                           // SUPPLY
-            {
-               ug2set = lamptem.ug2def;
-            }
-            if( typ >= FLAMP )  // ELAMP
-            {
-               EEPROM_WRITE((int)&lampeep[typ-FLAMP].ug2def, lamptem.ug2def);
-            }
-         }
-      }
-//***** Wyswietlanie Ug2 **************************************
-      int2asc( (unsigned int)licz );
-      if( ascii[2] != '0' )
-      {
-         buf[39] = ascii[2];
-         buf[40] = ascii[1];
-      }
-      else
-      {
-         buf[39] = ' ';
-         buf[40] = (ascii[1] != '0')? ascii[1]: ' ';
-      }
-      buf[41] = ascii[0];
-//***** Ustawianie Ig2 **************************************
-      licz = mig2adc;
-      licz *= vref;
-      licz >>= 13;   //  /8192(40mA)  /16384(20mA);
-      temp = mug2adc;
-      temp *= vref;
-      temp *= 10;
-      temp /= 4369064;
-      if( licz > temp ) { licz -= temp; } else licz = 0;
-      ig2 = (unsigned int)licz;
-      if( start == (FUH+2) ) licz = ig2lcd;
-      if( (adr == 0) || (adr == 16) )
-      {
-         if( dusk0 == DMAX )
-         {
-            licz = lamptem.ig2def;
-            zapisz = 1;
-         }
-         if( (nodus == DMIN) && (adr == 16) && (zapisz == 1) )
-         {
-            zapisz = 0;
-            if( typ >= FLAMP ) // ELAMP
-            {
-               EEPROM_WRITE((int)&lampeep[typ-FLAMP].ig2def, lamptem.ig2def);
-            }
-         }
-      }
-//***** Wyswietlanie Ig2 **************************************
-      int2asc( (unsigned int)licz );
-      buf[43] = (ascii[3] != '0')? ascii[3]: ' ';
-      buf[44] = ascii[2];
-      buf[45] = '.';
-      buf[46] = ascii[1];
-      buf[47] = ascii[0];
-//***** Ustawianie S ****************************************
-      licz = s;
-      if( start == (FUH+2) ) licz = slcd;
-      if( (adr == 0) || (adr == 17) )
-      {
-         if( dusk0 == DMAX )
-         {
-            licz = lamptem.sdef;
-            zapisz = 1;
-         }
-         if( (nodus == DMIN) && (adr == 17) && (zapisz == 1) )
-         {
-            zapisz = 0;
-            if( typ >= FLAMP )    // ELAMP
-            {
-               EEPROM_WRITE((int)&lampeep[typ-FLAMP].sdef, lamptem.sdef);
-            }
-         }
-      }
-//***** Wyswietlanie S ****************************************
-      int2asc( licz );
-      buf[49] = (ascii[2] != '0')? ascii[2]: ' ';
-      buf[50] = ascii[1];
-      buf[51] = '.';
-      buf[52] = ascii[0];
-//***** Ustawianie R ****************************************
-      licz = r;
-      if( start == (FUH+2) ) licz = rlcd;
-      if( (adr == 0) || (adr == 18) )
-      {
-         if( dusk0 == DMAX )
-         {
-            licz = lamptem.rdef;
-            zapisz = 1;
-         }
-         if( (nodus == DMIN) && (adr == 18) && (zapisz == 1) )
-         {
-            zapisz = 0;
-            if( typ >= FLAMP )  // ELAMP
-            {
-               EEPROM_WRITE((int)&lampeep[typ-FLAMP].rdef, lamptem.rdef);
-            }
-         }
-      }
-//***** Wyswietlanie R ****************************************
-      int2asc( licz );
-      buf[54] = (ascii[2] != '0')? ascii[2]: ' ';
-      buf[55] = ascii[1];
-      buf[56] = '.';
-      buf[57] = ascii[0];
-//***** Ustawianie K ****************************************
-      licz = k;
-      if( start == (FUH+2) ) licz = klcd;
-      if( (adr == 0) || (adr == 19) )
-      {
-         if( dusk0 == DMAX )
-         {
-            licz = lamptem.kdef;
-            zapisz = 1;
-         }
-         if( (nodus == DMIN) && (adr == 19) && (zapisz == 1) )
-         {
-            zapisz = 0;
-            if( typ >= FLAMP )   // ELAMP
-            {
-               EEPROM_WRITE((int)&lampeep[typ-FLAMP].kdef, lamptem.kdef);
-            }
-         }
-      }
-//***** Wyswietlanie K ****************************************
-      int2asc( licz );
-
-      if( ascii[3] != '0' )
-      {
-         buf[59] = ascii[3];
-         buf[60] = ascii[2];
-         buf[61] = ascii[1];
-      }
-      else
-      {
-         buf[59] = ' ';
-         if( ascii[2] != '0' )
-         {
-            buf[60] = ascii[2];
-            buf[61] = ascii[1];
-         }
-         else
-         {
-            buf[60] = ' ';
-            buf[61] = (ascii[1] != '0')? ascii[1]: ' ';
-         }
-      }
-      buf[62] = ascii[0];
-//***** Wyslanie pomiarow do PC *******************************
-      if( txen )
-      {
-         EEPROM_WRITE((int)&poptyp, typ);
-         if( typ == 1 )
-         {
-            for( i = 0; i < 10; i++ )
-            {
-               char2rs( bufin[i] );
-            }
-         }
-         else
-         {
-            cstr2rs( "\r\n" );
-            for( i = 0; i < 63; i++ )
-            {
-               if( buf[i] != '\0' ) char2rs( buf[i] ); else cstr2rs( "  " );
-            }
-         }
-         txen = 0;
-      }
+//***** Menu, katalog, edycja, obliczenia (wypelnianie buf[]) *****
+      control_update( ascii );
    }
 }
 

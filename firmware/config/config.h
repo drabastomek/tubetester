@@ -6,6 +6,12 @@
 #ifndef VTTESTER_CONFIG_H
 #define VTTESTER_CONFIG_H
 
+#include <avr/eeprom.h>
+
+/* EEPROM API (avr-libc) for use by main and control */
+#define EEPROM_READ(addr, var)   eeprom_read_block((void*)&(var), (const void*)(addr), sizeof(var))
+#define EEPROM_WRITE(addr, val)  eeprom_write_block((const void*)&(val), (void*)(addr), sizeof(val))
+
 /* --- MCU / asm helpers --- */
 #define BIT(x)  (1<<(x))
 #define LOW(x)  ((char)((int)(x)))
@@ -68,6 +74,16 @@
 /* --- Catalog sizes --- */
 #define FLAMP   (unsigned int)(1+1+357)
 #define ELAMP   (unsigned int)(39)
+
+/* --- VTTester protocol (SET param limits; #define to save RAM) --- */
+#define VTTESTER_SET_HEAT_IDX_MAX    7   /* P1 heater index: 0..7 only */
+#define VTTESTER_SET_UA_MAX          300 /* Ua: 10 V per step (P2*10), max 300 V */
+#define VTTESTER_SET_UG2_MAX         300 /* Ug2: 10 V per step (P3*10), max 300 V */
+#define VTTESTER_SET_UG1_MAX         240 /* Ug1 magnitude in 0.1V (240 = -24 V); ug1def = P4*UG1_P4_STEP, same as old code */
+#define VTTESTER_SET_P5_MAX          63 /* P5 (tuh): 0..63, 500ms per step -> tuh_ticks = P5*2 */
+#define VTTESTER_SET_UA_SCALE        10  /* P2/P3: 10 V per step (decoded value in volts) */
+#define VTTESTER_SET_UG1_P4_STEP     5   /* P4 -> ug1def in 0.1V magnitude: ug1def = P4*this (0.5 V per P4 step) */
+#define VTTESTER_SET_TUH_TICK_SCALE  2   /* P5 -> tuh_ticks (2 ticks per 500ms step) */
 
 /* --- Sequencer timing --- */
 #define TMAR    2
