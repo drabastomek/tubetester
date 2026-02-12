@@ -25,13 +25,14 @@ SRCS   += utils/utils.c
 # Protocol (standalone C, no AVR-specific deps in protocol layer)
 SRCS   += protocol/vttester_remote.c
 
-# Object files: same dir as sources (protocol/vttester_remote.o)
-OBJS    = $(SRCS:.c=.o)
+# All build artifacts under bin/ (preserves source dir structure: bin/config/config.o etc.)
+BINDIR  = bin
+OBJS    = $(addprefix $(BINDIR)/, $(SRCS:.c=.o))
 TARGET  = TTesterLCD32
-HEX     = $(TARGET).hex
-ELF     = $(TARGET).elf
+ELF     = $(BINDIR)/$(TARGET).elf
+HEX     = $(BINDIR)/$(TARGET).hex
 
-.PHONY: all clean flash size
+.PHONY: all clean flash size test
 
 all: $(HEX)
 
@@ -42,14 +43,19 @@ $(HEX): $(ELF)
 	$(OBJCOPY) -O ihex -R .eeprom $< $@
 	@echo "Flash used: $$( $(SIZE) -d $< | awk 'NR==2 {print $$1 + $$2}' ) bytes (of 32768). Hex file on disk is larger (Intel HEX overhead)."
 
-%.o: %.c
+$(BINDIR)/%.o: %.c
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f $(OBJS) $(ELF) $(HEX)
+	rm -rf $(BINDIR)
 
 size: $(ELF)
 	$(SIZE) $(ELF)
+
+# Host unit tests (protocol parse/send, utils int2asc). No AVR.
+test:
+	$(MAKE) -C test run
 
 # Uncomment and set PORT/BAUD for your programmer, e.g. usbasp, avrisp
 # flash: $(HEX)

@@ -2,8 +2,18 @@
  * Helper functions - use globals from main app (extern).
  */
 
-#include <avr/io.h>
-#include "utils.h"
+#ifdef VTTESTER_HOST_TEST
+/* Host unit test build: no AVR, stubs for hardware-dependent functions. */
+# include <stddef.h>
+# include "utils.h"
+void char2rs(unsigned char bajt) { (void)bajt; }
+void cstr2rs(const char *q) { (void)q; }
+void delay(unsigned char opoz) { (void)opoz; }
+void zersrk(void) {}
+unsigned int liczug1(unsigned int pug1) { (void)pug1; return 0; }
+#else
+# include <avr/io.h>
+# include "utils.h"
 
 /* Globals used by helpers (defined in TTesterLCD32.c) */
 extern unsigned char busy, zwloka;
@@ -50,6 +60,7 @@ unsigned int liczug1(unsigned int pug1)
    licz /= vref;
    return (unsigned int)licz;
 }
+#endif /* !VTTESTER_HOST_TEST */
 
 void int2asc(unsigned int liczba, unsigned char *ascii)
 {

@@ -6,6 +6,9 @@
 #include "config/config.h"
 #include "display/display.h"
 #include "utils/utils.h"
+#include <string.h>
+
+#ifndef VTTESTER_HOST_TEST
 #include <avr/io.h>
 
 /* From main */
@@ -48,7 +51,10 @@ void str2lcd(char f, unsigned char *c)
    while (*c) { char2lcd(f, *c); c++; }
 }
 
+#endif /* !VTTESTER_HOST_TEST */
+
 /* LCD hw init, CGRAM (cyr*), splash. Main does delay loop + cstr2rs after. */
+#ifndef VTTESTER_HOST_TEST
 void display_init(void)
 {
    unsigned char i;
@@ -75,7 +81,141 @@ void display_init(void)
    gotoxy(0, 2); cstr2lcd(0, (const unsigned char *)"Gumny |Tatus|       ");
    gotoxy(0, 3); cstr2lcd(0, (const unsigned char *)"forum-trioda.pl/    ");
 }
+#endif /* !VTTESTER_HOST_TEST */
 
+/* Build row 0: number (buf[0..2]), name (buf[4..12]), " G", "-", Ug1 (buf[24..27]). */
+void display_build_row0(const unsigned char *buf, unsigned char adr, unsigned int start, char *out)
+{
+   unsigned char i;
+   (void)adr;
+   (void)start;
+   out[0] = buf[0];
+   out[1] = buf[1];
+   out[2] = buf[2];
+   out[3] = ' ';
+   for (i = 0; i < 9; i++) out[4 + i] = buf[4 + i];
+   out[13] = ' ';
+   out[14] = 'G';
+   out[15] = '-';
+   out[16] = buf[24];
+   out[17] = buf[25];
+   out[18] = buf[26];
+   out[19] = buf[27];
+   out[20] = '\0';
+}
+
+void display_build_row1(const unsigned char *buf, unsigned char adr, char *out)
+{
+   unsigned char i = 0;
+   (void)adr;
+   out[i++] = 'H';
+   out[i++] = '=';
+   out[i++] = buf[14];
+   out[i++] = buf[15];
+   out[i++] = buf[16];
+   out[i++] = buf[17];
+   out[i++] = 'V';
+   out[i++] = ' ';
+   out[i++] = 'A';
+   out[i++] = '=';
+   out[i++] = buf[29];
+   out[i++] = buf[30];
+   out[i++] = buf[31];
+   out[i++] = ' ';
+   out[i++] = 'G';
+   out[i++] = '2';
+   out[i++] = '=';
+   out[i++] = buf[39];
+   out[i++] = buf[40];
+   out[i++] = buf[41];
+   out[20] = '\0';
+}
+
+void display_build_row2(const unsigned char *buf, unsigned char adr, unsigned char err, char *out)
+{
+   unsigned char i = 0, e = ' ';
+   if ((err & OVERIH) == OVERIH) e = 'H';
+   if ((err & OVERIA) == OVERIA) e = 'A';
+   if ((err & OVERIG) == OVERIG) e = 'G';
+   if ((err & OVERTE) == OVERTE) e = 'T';
+   (void)adr;
+   out[i++] = e;
+   out[i++] = ' ';
+   out[i++] = buf[19];
+   out[i++] = buf[20];
+   out[i++] = buf[21];
+   out[i++] = ' ';
+   out[i++] = 'm';
+   out[i++] = 'A';
+   out[i++] = ' ';
+   out[i++] = buf[33];
+   out[i++] = buf[34];
+   out[i++] = buf[35];
+   out[i++] = buf[36];
+   out[i++] = buf[37];
+   out[i++] = ' ';
+   out[i++] = buf[43];
+   out[i++] = buf[44];
+   out[i++] = buf[45];
+   out[i++] = buf[46];
+   out[i++] = buf[47];
+   out[20] = '\0';
+}
+
+void display_build_row3(unsigned char typ, unsigned int start, unsigned char dusk0, const unsigned char *buf, unsigned char adr, char *out)
+{
+   unsigned char ascii[5];
+   unsigned char i;
+   (void)adr;
+   if (typ > 1) {
+      memset(out, ' ', 20);
+      out[0] = 'S';
+      out[1] = '=';
+      out[2] = buf[49];
+      out[3] = buf[50];
+      out[4] = buf[51];
+      out[5] = buf[52];
+      out[6] = ' ';
+      out[7] = 'R';
+      out[8] = '=';
+      out[9] = buf[54];
+      out[10] = buf[55];
+      out[11] = buf[56];
+      out[12] = buf[57];
+      if ((start <= (FUH+2)) || (dusk0 == DMAX)) {
+         out[13] = ' ';
+         out[14] = 'K';
+         out[15] = '=';
+         out[16] = buf[59];
+         out[17] = buf[60];
+         out[18] = buf[61];
+         out[19] = buf[62];
+      } else {
+         int2asc(start >> 2, ascii);
+         out[13] = ' ';
+         out[14] = 'T';
+         out[15] = '=';
+         if (ascii[2] != '0') {
+            out[16] = ascii[2];
+            out[17] = ascii[1];
+         } else {
+            out[16] = ' ';
+            out[17] = ascii[1] != '0' ? ascii[1] : ' ';
+         }
+         out[18] = ascii[0];
+         out[19] = 's';
+      }
+   } else {
+      if (typ == 0) {
+         for (i = 0; i < 20; i++) out[i] = ' ';
+      } else {
+         memcpy(out, " TX/RX: 9600,8,N,1  ", 20);
+      }
+   }
+   out[20] = '\0';
+}
+
+#ifndef VTTESTER_HOST_TEST
 /* Draw current screen from buf[]; row 3 depends on typ (local vs power supply/remote). */
 void display_refresh(void)
 {
@@ -153,3 +293,4 @@ void display_refresh(void)
       }
    }
 }
+#endif /* !VTTESTER_HOST_TEST */

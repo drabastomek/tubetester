@@ -11,6 +11,12 @@
 void display_init(void);
 void display_refresh(void);
 
+/* Build 20-char line for each row (null-terminated at [20]). Testable without hardware. */
+void display_build_row0(const unsigned char *buf, unsigned char adr, unsigned int start, char *out);
+void display_build_row1(const unsigned char *buf, unsigned char adr, char *out);
+void display_build_row2(const unsigned char *buf, unsigned char adr, unsigned char err, char *out);
+void display_build_row3(unsigned char typ, unsigned int start, unsigned char dusk0, const unsigned char *buf, unsigned char adr, char *out);
+
 void cmd2lcd(char rs, char bajt);
 void gotoxy(char x, char y);
 void char2lcd(char f, char c);

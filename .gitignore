@@ -4,3 +4,8 @@
 
 vttester_protocol_example/
 vttester_protocol_example.*
+
+*.elf
+*.hex
+*.o
+bin/

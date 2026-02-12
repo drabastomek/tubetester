@@ -6,7 +6,9 @@
 #include "config/config.h"
 #include "control/control.h"
 #include "utils/utils.h"
+#ifndef VTTESTER_HOST_TEST
 #include <avr/io.h>
+#endif
 
 extern unsigned char buf[64], adr, typ, nowa, nodus, dusk0, zapisz, czytaj;
 extern unsigned char range, rangelcd, rangedef, txen, bufin[10];
