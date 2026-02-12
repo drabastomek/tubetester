@@ -9,7 +9,11 @@
 #include <string.h>
 
 #ifndef VTTESTER_HOST_TEST
+#if defined(ICCAVR)
+#include <iom32v.h>
+#else
 #include <avr/io.h>
+#endif
 
 /* From main */
 extern unsigned char buf[64], adr, typ, takt, dusk0, err;
@@ -60,7 +64,8 @@ void display_init(void)
    unsigned char i;
    extern char cyrB[8], cyrC[8], cyrD[8], cyrF[8], cyrG[8], cyrI[8], cyrP[8], cyrZ[8];
 
-   delay(30);
+   /* HD44780 needs ≥40 ms after Vcc before first command */
+   delay(50);
    cmd2lcd(0, 0x28);
    cmd2lcd(0, 0x06);
    cmd2lcd(0, 0x0c);

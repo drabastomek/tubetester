@@ -7,8 +7,12 @@
 //  1     1   0   0   1    0    0    1    0     0   0  1  1    1    1    1 (0xC91F)
 //*************************************************************
 
+#if defined(ICCAVR)
+#include <iom32v.h>
+#else
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#endif
 #include "config/config.h"
 #include "protocol/vttester_remote.h"
 #include "utils/utils.h"
@@ -81,7 +85,12 @@ katalog
 //                 O B S L U G A   P R Z E R W A N
 //*************************************************************************
 
+#if defined(ICCAVR)
+#pragma interrupt_handler ext_int1:3
+void ext_int1(void)
+#else
 ISR(INT1_vect)
+#endif
 {
    if( start > (TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2) )
    {
@@ -278,7 +287,12 @@ ISR(INT1_vect)
    }
 }
 
+#if defined(ICCAVR)
+#pragma interrupt_handler adc:17
+void adc(void)
+#else
 ISR(ADC_vect)
+#endif
 {
    switch( kanal )
    {
@@ -528,12 +542,22 @@ ISR(ADC_vect)
 // NOP;
 }
 
+#if defined(ICCAVR)
+#pragma interrupt_handler usart_txc:16
+void usart_txc(void)
+#else
 ISR(USART_TXC_vect)
+#endif
 {
    busy = 0;
 }
 
+#if defined(ICCAVR)
+#pragma interrupt_handler usart_rxc:14
+void usart_rxc(void)
+#else
 ISR(USART_RXC_vect)
+#endif
 {
    /* Feed byte to VTTester 8-byte protocol buffer */
    rx_proto_buf[rx_proto_pos++] = UDR;
@@ -581,7 +605,12 @@ ISR(USART_RXC_vect)
    }
 }
 
+#if defined(ICCAVR)
+#pragma interrupt_handler timer2_comp:5
+void timer2_comp(void)
+#else
 ISR(TIMER2_COMP_vect)
+#endif
 {
    if( zwloka != 0 ) { zwloka--; }
    if( tout > 1 ) { tout--; }

@@ -7,7 +7,11 @@
 #include "control/control.h"
 #include "utils/utils.h"
 #ifndef VTTESTER_HOST_TEST
+#if defined(ICCAVR)
+#include <iom32v.h>
+#else
 #include <avr/io.h>
+#endif
 #endif
 
 extern unsigned char buf[64], adr, typ, nowa, nodus, dusk0, zapisz, czytaj;

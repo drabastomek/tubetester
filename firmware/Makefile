@@ -1,16 +1,40 @@
 # VTTester firmware - ATmega32
-# Requires avr-gcc, avr-binutils. Optional: avrdude for flash.
+# Toolchain: make [TOOLCHAIN=gcc]   -> avr-gcc (default)
+#            make TOOLCHAIN=iccavr  -> ImageCraft ICCAVR (add -DICCAVR, see docs/ICCAVR_PORTING.md)
+# Requires avr-gcc + avr-binutils for TOOLCHAIN=gcc. For iccavr, have iccavr in PATH or set ICCAVR_HOME.
 
 MCU     = atmega32
 F_CPU   = 16000000
+TOOLCHAIN ?= gcc
 
-CC      = avr-gcc
-OBJCOPY = avr-objcopy
-SIZE    = avr-size
-
-CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL -Os -Wall -Wextra
-CFLAGS += -ffunction-sections -fdata-sections -I.
-LDFLAGS = -mmcu=$(MCU) -Wl,--gc-sections
+# --- Toolchain selection ---
+ifeq ($(TOOLCHAIN),iccavr)
+  ICCAVR_PREFIX  := $(if $(ICCAVR_HOME),$(ICCAVR_HOME)/,)
+  CC             = $(ICCAVR_PREFIX)iccavr
+  OBJCOPY        = avr-objcopy
+  SIZE           = avr-size
+  # MCU_DEF for ICCAVR: default ATMEGA32; set to ATMega32 if your IDE uses that (e.g. ICCAVR_MCU_DEF=ATMega32)
+  ICCAVR_MCU_DEF ?= $(shell echo $(MCU) | tr a-z A-Z)
+  CFLAGS         = -c -DICCAVR -D$(ICCAVR_MCU_DEF) -DF_CPU=$(F_CPU)UL -I.
+  CFLAGS        += -e -g -MLongJump -MHasMul -MEnhanced
+  LDFLAGS        = -o
+  LDFLAGS_POST   = -m$(ICCAVR_MCU_DEF) -g
+  # ICCAVR may need -L and -l for lib path; set LDFLAGS_ICCAVR_EXTRA if needed
+  LDFLAGS_ICCAVR_EXTRA ?=
+  COMPILE_CMD = $(CC) $(CFLAGS) $< -o $@
+  LINK_CMD    = $(CC) $(LDFLAGS) $@ $^ $(LDFLAGS_POST) $(LDFLAGS_ICCAVR_EXTRA)
+else
+  CC      = avr-gcc
+  OBJCOPY = avr-objcopy
+  SIZE    = avr-size
+  CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL -Os -Wall -Wextra
+  CFLAGS += -ffunction-sections -fdata-sections -I.
+  LDFLAGS = -mmcu=$(MCU) -Wl,--gc-sections
+  LDFLAGS_POST   =
+  LDFLAGS_ICCAVR_EXTRA =
+  COMPILE_CMD = $(CC) $(CFLAGS) -c -o $@ $<
+  LINK_CMD    = $(CC) $(LDFLAGS) -o $@ $^
+endif
 
 # Main app (adjust if your build uses IAR headers; then switch to IAR toolchain)
 SRCS    = TTesterLCD32.c
@@ -37,15 +61,15 @@ HEX     = $(BINDIR)/$(TARGET).hex
 all: $(HEX)
 
 $(ELF): $(OBJS)
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(LINK_CMD)
 
 $(HEX): $(ELF)
 	$(OBJCOPY) -O ihex -R .eeprom $< $@
-	@echo "Flash used: $$( $(SIZE) -d $< | awk 'NR==2 {print $$1 + $$2}' ) bytes (of 32768). Hex file on disk is larger (Intel HEX overhead)."
+	@echo "Flash used: $$( $(SIZE) -d $< 2>/dev/null | awk 'NR==2 {print $$1 + $$2}' ) bytes (of 32768). Hex file on disk is larger (Intel HEX overhead)."
 
 $(BINDIR)/%.o: %.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(COMPILE_CMD)
 
 clean:
 	rm -rf $(BINDIR)
@@ -62,3 +86,5 @@ test:
 #	avrdude -p $(MCU) -c usbasp -P usb -U flash:w:$(HEX):i
 
 # Flash: .text + .data must fit in 32KB. Large const data (lamprom, crc8_table) use PROGMEM.
+#
+# ICCAVR (Windows): set ICCAVR_HOME to the compiler dir if iccavr not in PATH, e.g. make TOOLCHAIN=iccavr ICCAVR_HOME=C:/Users/Tomek/iccv8avr

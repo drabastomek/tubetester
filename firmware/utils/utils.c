@@ -12,7 +12,12 @@ void delay(unsigned char opoz) { (void)opoz; }
 void zersrk(void) {}
 unsigned int liczug1(unsigned int pug1) { (void)pug1; return 0; }
 #else
-# include <avr/io.h>
+# if defined(ICCAVR)
+#  include <iom32v.h>
+# else
+#  include <avr/io.h>
+# endif
+# include "config/config.h"
 # include "utils.h"
 
 /* Globals used by helpers (defined in TTesterLCD32.c) */
@@ -41,7 +46,7 @@ void cstr2rs(const char *q)
 void delay(unsigned char opoz)
 {
    zwloka = opoz + 1;
-   while( zwloka != 0 ) ;
+   while( zwloka != 0 ) { WDR; }
 }
 
 void zersrk(void)

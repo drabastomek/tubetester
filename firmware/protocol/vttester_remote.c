@@ -5,14 +5,15 @@
 
 #include "vttester_remote.h"
 #include "config/config.h"
-#ifdef __AVR__
+/* PROGMEM/pgm_read_byte only for avr-gcc firmware build; host tests and ICCAVR use RAM table */
+#if !defined(VTTESTER_HOST_TEST) && !defined(ICCAVR)
 #include <avr/pgmspace.h>
 #endif
 
 #define CMD_SET  0
 #define CMD_MEAS 1
 
-#ifdef __AVR__
+#if !defined(VTTESTER_HOST_TEST) && !defined(ICCAVR)
 static const unsigned char crc8_table[256] PROGMEM = {
 #else
 static const unsigned char crc8_table[256] = {
@@ -38,7 +39,7 @@ static const unsigned char crc8_table[256] = {
 static unsigned char crc8_compute(const unsigned char *data, unsigned char len)
 {
     unsigned char crc = 0;
-#ifdef __AVR__
+#if !defined(VTTESTER_HOST_TEST) && !defined(ICCAVR)
     while (len--) crc = pgm_read_byte(&crc8_table[crc ^ *data++]);
 #else
     while (len--) crc = crc8_table[crc ^ *data++];

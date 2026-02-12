@@ -4,8 +4,8 @@
 CC     = gcc
 CFLAGS = -Wall -Wextra -I. -I.. -I../protocol -I../utils -I../display -I../control
 
-# Protocol: use test config (no AVR)
-PROTOCOL_CFLAGS = -I. -I../protocol
+# Protocol: use test config (no AVR), host build so no PROGMEM
+PROTOCOL_CFLAGS = -DVTTESTER_HOST_TEST -I. -I../protocol
 # Utils for host: stubs
 UTILS_CFLAGS = -DVTTESTER_HOST_TEST -I../utils
 # Display: host build (build functions only)
