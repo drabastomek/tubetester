@@ -13,3 +13,4 @@ bin/
 *.zip
 
 old_code/
+__pycache__/
