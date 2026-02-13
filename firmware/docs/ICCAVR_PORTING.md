@@ -15,6 +15,12 @@ The firmware is developed and tested with **avr-gcc** (GNU toolchain). Building 
 3. **Headers**  
    `<avr/eeprom.h>` and `<avr/pgmspace.h>` are GCC/avr-libc specific. The compatibility blocks avoid including them when **`ICCAVR`** is defined.
 
+4. **char signedness**  
+   ICCAVR treats plain **`char`** as **unsigned**; avr-gcc defaults to **signed**. Shifts and comparisons on `char` can then differ. The main Makefile uses **`-funsigned-char`** for avr-gcc so behaviour matches ICCAVR. For new code, prefer **`uint8_t`** / **`int8_t`** explicitly.
+
+5. **ISR‑shared variables**  
+   Variables written in an ISR and read in main (or the other way around) must be **`volatile`**, or the compiler may optimize away reads. In **TTesterLCD32.c**, `busy`, `sync`, `zwloka`, `irx`, `tout`, `crc`, `rx_proto_pos`, `rx_proto_ready` are declared **`volatile`** for this reason.
+
 ---
 
 ## What is already in the source (when you define ICCAVR)

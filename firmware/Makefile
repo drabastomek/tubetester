@@ -28,6 +28,7 @@ else
   OBJCOPY = avr-objcopy
   SIZE    = avr-size
   CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL -Os -Wall -Wextra
+  CFLAGS += -funsigned-char
   CFLAGS += -ffunction-sections -fdata-sections -I.
   LDFLAGS = -mmcu=$(MCU) -Wl,--gc-sections
   LDFLAGS_POST   =

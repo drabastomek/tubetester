@@ -11,3 +11,5 @@ vttester_protocol_example.*
 bin/
 
 *.zip
+
+old_code/

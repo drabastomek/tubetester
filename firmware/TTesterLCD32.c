@@ -23,14 +23,11 @@
 
 unsigned char
    d, i,
-   busy,
-   sync,
    txen,
    *cwart, cwartmin, cwartmax,
    adr, adrmin, adrmax,
    nowa,
    stop,
-   zwloka,
    dziel,
    nodus, dusk0,
    zapisz, czytaj,
@@ -42,17 +39,23 @@ unsigned char
    probki,
    pwm,
    anode,
-   irx, tout, crc,
    bufin[10],
    buf[64],
    rx_proto_buf[VTTESTER_FRAME_LEN],
-   rx_proto_pos,
-   rx_proto_ready,
    tx_proto_buf[VTTESTER_FRAME_LEN],
    remote_meas_trigger,
    remote_meas_pending,
    remote_meas_ready,
    remote_meas_index;
+
+/* ISR ↔ main shared: must be volatile so optimizer does not assume they never change */
+volatile unsigned char
+   busy,       /* USART_TXC clears; main waits in char2rs */
+   sync,       /* TIMER2_COMP sets; main checks in loop */
+   zwloka,     /* TIMER2_COMP decrements; delay() spins */
+   irx, tout, crc,
+   rx_proto_pos,
+   rx_proto_ready;
 
 unsigned int
    *wart, wartmin, wartmax,
