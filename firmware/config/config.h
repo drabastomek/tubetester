@@ -95,10 +95,10 @@
 #define VTTESTER_SET_UA_MAX          300 /* Ua: 10 V per step (P2*10), max 300 V */
 #define VTTESTER_SET_UG2_MAX         300 /* Ug2: 10 V per step (P3*10), max 300 V */
 #define VTTESTER_SET_UG1_MAX         240 /* Ug1 magnitude in 0.1V (240 = -24 V); ug1def = P4*UG1_P4_STEP, same as old code */
-#define VTTESTER_SET_P5_MAX          63 /* P5 (tuh): 0..63, 500ms per step -> tuh_ticks = P5*2 */
+#define VTTESTER_SET_TUH_INDEX_MAX   63 /* heating time index 0..63 (500ms per step) -> tuh_ticks = index*TUH_TICK_SCALE */
 #define VTTESTER_SET_UA_SCALE        10  /* P2/P3: 10 V per step (decoded value in volts) */
 #define VTTESTER_SET_UG1_P4_STEP     5   /* P4 -> ug1def in 0.1V magnitude: ug1def = P4*this (0.5 V per P4 step) */
-#define VTTESTER_SET_TUH_TICK_SCALE  2   /* P5 -> tuh_ticks (2 ticks per 500ms step) */
+#define VTTESTER_SET_TUH_TICK_SCALE  2   /* tuh index -> tuh_ticks (2 ticks per 500ms step) */
 
 /* --- Sequencer timing --- */
 #define TMAR    2
