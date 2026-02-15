@@ -13,3 +13,4 @@ bin/
 *.zip
 
 old_code/
+test_runner
