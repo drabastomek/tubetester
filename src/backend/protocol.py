@@ -16,6 +16,7 @@ CMD_SET = 0
 CMD_MEAS = 1
 CTRL_SET = 0x20   # SET, bit 5 set
 CTRL_MEAS = 0x60  # MEAS, bit 5 set
+# TODO: add CTRL_STATUS and CTRL_RESET commands
 
 # Response status (FW -> PC): buf[0] & 0xC0
 STATUS_OK = 0x00
