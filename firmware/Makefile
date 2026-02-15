@@ -4,6 +4,7 @@
 # Requires avr-gcc + avr-binutils for TOOLCHAIN=gcc. For iccavr, have iccavr in PATH or set ICCAVR_HOME.
 
 MCU     = atmega32
+# 16 MHz external crystal (default). For 8 MHz internal clock testing see firmware/docs/8MHZ_INTERNAL_CLOCK.md
 F_CPU   = 16000000
 TOOLCHAIN ?= gcc
 

@@ -57,10 +57,10 @@ static const unsigned char heat_voltage[8] = { 0, 14, 20, 25, 40, 50, 63, 126 };
 
 /* Simplified SET encoding (no resolution bits): P1 low nibble = heat 0..7; P2/P3 = byte*10 V, max 300 V;
    P4 -> ug1def = P4*5 (0.1V magnitude, 0..240; 240 = -24 V, same as old code and protocol).
-   P5 = 0..63, tuh_ticks = P5*2 (500ms/step). Main app: ug1set = liczug1(parsed.set.ug1def). */
+   Byte 6 = tuh index 0..63 (500ms/step), tuh_ticks = index*TUH_TICK_SCALE. Main app: ug1set = liczug1(parsed.set.ug1def). */
 unsigned char vttester_parse_message(const unsigned char *frame, vttester_parsed_t *out)
 {
-    unsigned char cmd, p1, p2, p3, p4, p5;
+    unsigned char cmd, p1, p2, p3, p4, tuh_index;
     unsigned char heat_idx;
     unsigned int ua_v, ug2_v, p4_val_01;
 
@@ -91,7 +91,7 @@ unsigned char vttester_parse_message(const unsigned char *frame, vttester_parsed
         return VTTESTER_CMD_NONE;
     }
 
-    p1 = frame[2]; p2 = frame[3]; p3 = frame[4]; p4 = frame[5]; p5 = frame[6];
+    p1 = frame[2]; p2 = frame[3]; p3 = frame[4]; p4 = frame[5]; tuh_index = frame[6];
 
     heat_idx = p1 & 0x0F;
     if (heat_idx > VTTESTER_SET_HEAT_IDX_MAX) {
@@ -135,15 +135,15 @@ unsigned char vttester_parse_message(const unsigned char *frame, vttester_parsed
     /* Same as old code: ug1def 0..240 in 0.1V units, 240 = -24.0 V (liczug1(240) in main app). */
     out->set.ug1def = (unsigned char)p4_val_01;
 
-    if (p5 > VTTESTER_SET_P5_MAX) {
+    if (tuh_index > VTTESTER_SET_TUH_INDEX_MAX) {
         out->cmd = VTTESTER_CMD_SET;
-        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;  /* P5: tuh index 0..63 (500 ms per step). */
+        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;  /* Param 5: tuh index 0..63 (500 ms per step). */
         out->set.error_param = 5;
-        out->set.error_value = p5;
+        out->set.error_value = tuh_index;
         return VTTESTER_CMD_SET;
     }
     out->err_code = VTTESTER_ERR_OK;  /* All SET params within range. */
-    out->set.tuh_ticks = (unsigned int)p5 * VTTESTER_SET_TUH_TICK_SCALE;
+    out->set.tuh_ticks = (unsigned int)tuh_index * VTTESTER_SET_TUH_TICK_SCALE;
 
     out->cmd = VTTESTER_CMD_SET;
     return VTTESTER_CMD_SET;

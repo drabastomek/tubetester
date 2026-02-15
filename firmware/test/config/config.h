@@ -14,7 +14,7 @@
 #define VTTESTER_SET_UA_MAX          300
 #define VTTESTER_SET_UG2_MAX         300
 #define VTTESTER_SET_UG1_MAX         240
-#define VTTESTER_SET_P5_MAX          63
+#define VTTESTER_SET_TUH_INDEX_MAX   63
 #define VTTESTER_SET_UA_SCALE        10
 #define VTTESTER_SET_UG1_P4_STEP     5
 #define VTTESTER_SET_TUH_TICK_SCALE  2
