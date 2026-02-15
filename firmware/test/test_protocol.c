@@ -79,12 +79,12 @@ static void test_parse_meas(void)
    TEST_ASSERT(parsed.index == 0x11);
 }
 
-/* --- Parse: SET valid (heat 0..7, Ua/UG2 0..30, Ug1 P4*5<=240, P5 0..63) --- */
+/* --- Parse: SET valid (heat 0..7, Ua/UG2 0..30, Ug1 P4*5<=240, tuh index 0..63) --- */
 static void test_parse_set_ok(void)
 {
    unsigned char frame[8];
    vttester_parsed_t parsed;
-   /* SET: heat=6 (6.3V), P2=20 (200V), P3=15 (150V), P4=24 (ug1def=120), P5=10 */
+   /* SET: heat=6 (6.3V), P2=20 (200V), P3=15 (150V), P4=24 (ug1def=120), tuh_index=10 -> tuh_ticks=20 */
    build_frame(frame, 0x20, 0x00, 0x06, 20, 15, 24, 10);
    unsigned char cmd = vttester_parse_message(frame, &parsed);
    TEST_ASSERT(cmd == VTTESTER_CMD_SET);
@@ -93,7 +93,7 @@ static void test_parse_set_ok(void)
    TEST_ASSERT(parsed.set.uadef == 200);
    TEST_ASSERT(parsed.set.ug2def == 150);
    TEST_ASSERT(parsed.set.ug1def == 120); /* P4*5 = 120 */
-   TEST_ASSERT(parsed.set.tuh_ticks == 20);
+   TEST_ASSERT(parsed.set.tuh_ticks == 20); /* tuh_index 10 * TUH_TICK_SCALE = 20 */
 }
 
 /* --- Parse: SET P1 out of range (heat index > 7) --- */
@@ -147,8 +147,8 @@ static void test_parse_set_p4_oob(void)
    TEST_ASSERT(parsed.set.error_value == 49);
 }
 
-/* --- Parse: SET P5 out of range (> 63) --- */
-static void test_parse_set_p5_oob(void)
+/* --- Parse: SET param 5 (tuh index) out of range (> 63) --- */
+static void test_parse_set_tuh_index_oob(void)
 {
    unsigned char frame[8];
    vttester_parsed_t parsed;
@@ -227,7 +227,7 @@ void run_protocol_tests(void)
    test_parse_set_p2_oob();
    test_parse_set_p3_oob();
    test_parse_set_p4_oob();
-   test_parse_set_p5_oob();
+   test_parse_set_tuh_index_oob();
    test_parse_set_ug1_range();
    test_send_response_ok();
    test_send_response_out_of_range();
