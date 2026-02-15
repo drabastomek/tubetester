@@ -41,22 +41,22 @@
 #endif
 
 /* --- Port / hardware --- */
-#define SET200   PORTB |= BIT(0)
-#define RST200   PORTB &= ~BIT(0)
-#define SETSEL   PORTB |= BIT(1)
-#define RSTSEL   PORTB &= ~BIT(1)
-#define ENSET   PORTC |= BIT(3)
-#define ENRST   PORTC &= ~BIT(3)
-#define RSSET   PORTC |= BIT(2)
-#define RSRST   PORTC &= ~BIT(2)
+#define SET200    PORTB |= BIT(0)
+#define RST200    PORTB &= ~BIT(0)
+#define SETSEL    PORTB |= BIT(1)
+#define RSTSEL    PORTB &= ~BIT(1)
+#define ENSET     PORTC |= BIT(3)
+#define ENRST     PORTC &= ~BIT(3)
+#define RSSET     PORTC |= BIT(2)
+#define RSRST     PORTC &= ~BIT(2)
 #define DUSK0   ( PIND & BIT(2) ) == 0
 #define RIGHT   ( PIND & BIT(6) ) == 0
-#define TOPPWM  ICR1
-#define PWMUG2  OCR1A
-#define PWMUA   OCR1B
-#define PWMUH   OCR0
-#define SPKON   TCCR2 |= BIT(COM20)
-#define SPKOFF  TCCR2 &= ~BIT(COM20)
+#define TOPPWM    ICR1
+#define PWMUG2    OCR1A
+#define PWMUA     OCR1B
+#define PWMUH     OCR0
+#define SPKON     TCCR2 |= BIT(COM20)
+#define SPKOFF    TCCR2 &= ~BIT(COM20)
 #define CLKUG1SET PORTB |= BIT(2)
 #define CLKUG1RST PORTB &= ~BIT(2)
 
@@ -72,22 +72,22 @@
 #define LPROB   63
 
 /* --- ADC / alarms --- */
-#define HITEMP  10240
-#define LOTEMP  8960
+#define HITEMP   10240
+#define LOTEMP   8960
 #define OVERSAMP 2
-#define OVERIH  0b00000001
-#define OVERIA  0b00000010
-#define OVERIG  0b00000100
-#define OVERTE  0b00001000
-#define OVERTX  0b00010000
-#define ADRREZ  0b00000000
-#define ADRIH   0b00000001
-#define ADRUH   0b00000010
-#define ADRUA   0b00000011
-#define ADRIA   0b00000100
-#define ADRUG2  0b00000101
-#define ADRIG2  0b00000110
-#define ADRUG1  0b00000111
+#define OVERIH   0b00000001
+#define OVERIA   0b00000010
+#define OVERIG   0b00000100
+#define OVERTE   0b00001000
+#define OVERTX   0b00010000
+#define ADRREZ   0b00000000
+#define ADRIH    0b00000001
+#define ADRUH    0b00000010
+#define ADRUA    0b00000011
+#define ADRIA    0b00000100
+#define ADRUG2   0b00000101
+#define ADRIG2   0b00000110
+#define ADRUG1   0b00000111
 
 /* --- Catalog sizes --- */
 #define FLAMP   (uint16_t)(1+1+357)
@@ -118,17 +118,17 @@
 /* --- Tube catalog entry --- */
 typedef struct
 {
-   uint8_t nazwa[9];
-   uint8_t uhdef;
-   uint8_t ihdef;
-   uint8_t ug1def;
-   uint16_t  uadef;
-   uint16_t  iadef;
-   uint16_t  ug2def;
-   uint16_t  ig2def;
-   uint16_t  sdef;
-   uint16_t  rdef;
-   uint16_t  kdef;
+   uint8_t  nazwa[9];
+   uint8_t  uhdef;
+   uint8_t  ihdef;
+   uint8_t  ug1def;
+   uint16_t uadef;
+   uint16_t iadef;
+   uint16_t ug2def;
+   uint16_t ig2def;
+   uint16_t sdef;
+   uint16_t rdef;
+   uint16_t kdef;
 } katalog;
 
 /* ROM tube catalog: PROGMEM only for avr-gcc firmware; host tests and ICCAVR use RAM. */
