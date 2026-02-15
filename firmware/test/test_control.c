@@ -7,17 +7,17 @@
 #include "config/config.h"
 #include <string.h>
 
-extern unsigned char buf[64], adr, dusk0, zapisz, czytaj;
-extern unsigned int typ;
-extern unsigned int start, vref, ug1lcd, uhlcd, ihlcd, lastyp;
-extern unsigned int muhadc, mihadc, mug1adc, muaadc, miaadc, mug2adc, mig2adc;
-extern unsigned int range;
+extern uint8_t buf[64], adr, dusk0, zapisz, czytaj;
+extern uint16_t typ;
+extern uint16_t start, vref, ug1lcd, uhlcd, ihlcd, lastyp;
+extern uint16_t muhadc, mihadc, mug1adc, muaadc, miaadc, mug2adc, mig2adc;
+extern uint16_t range;
 extern katalog lamprem, lamptem;
 
 /* AZ indices: A=0..Z=25, _=26, 0=27..9=35. nazwa[] uses these; buf[11] = AZ[nazwa[7]]. */
 static void test_control_adr0_typ1_fills_buf_number_and_name(void)
 {
-   unsigned char ascii[5];
+   uint8_t ascii[5];
    memset(buf, 0, sizeof(buf));
    adr = 0;
    typ = 1;
@@ -39,7 +39,7 @@ static void test_control_adr0_typ1_fills_buf_number_and_name(void)
 
 static void test_control_ug1_display_from_adc(void)
 {
-   unsigned char ascii[5];
+   uint8_t ascii[5];
    memset(buf, 0, sizeof(buf));
    adr = 0;
    typ = 1;
@@ -57,7 +57,7 @@ static void test_control_ug1_display_from_adc(void)
 
 static void test_control_typ2_loads_lamprom_name(void)
 {
-   unsigned char ascii[5];
+   uint8_t ascii[5];
    memset(buf, 0, sizeof(buf));
    adr = 0;
    typ = 2;

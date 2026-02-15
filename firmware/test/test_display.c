@@ -6,7 +6,7 @@
 #include "../display/display.h"
 #include <string.h>
 
-static unsigned char buf[64];
+static uint8_t buf[64];
 
 static void test_row0_number_name_ug1(void)
 {
@@ -67,7 +67,7 @@ static void test_row3_typ0_blank(void)
 {
    char out[21];
    display_build_row3(0, 0, 0, buf, 0, out);
-   for (int i = 0; i < 20; i++) TEST_ASSERT(out[i] == ' ');
+   for (uint8_t i = 0; i < 20; i++) TEST_ASSERT(out[i] == ' ');
    TEST_ASSERT(out[20] == '\0');
 }
 

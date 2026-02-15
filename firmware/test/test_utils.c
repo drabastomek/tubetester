@@ -8,7 +8,7 @@
 /* int2asc writes units to ascii[0], tens to ascii[1], hundreds to ascii[2], thousands to ascii[3]. */
 static void test_int2asc_zero(void)
 {
-   unsigned char ascii[5];
+   uint8_t ascii[5];
    memset(ascii, 0x55, sizeof(ascii));
    int2asc(0, ascii);
    TEST_ASSERT(ascii[0] == '0' && ascii[1] == '0' && ascii[2] == '0' && ascii[3] == '0');
@@ -16,49 +16,49 @@ static void test_int2asc_zero(void)
 
 static void test_int2asc_one_digit(void)
 {
-   unsigned char ascii[5];
+   uint8_t ascii[5];
    int2asc(7, ascii);
    TEST_ASSERT(ascii[0] == '7' && ascii[1] == '0' && ascii[2] == '0' && ascii[3] == '0');
 }
 
 static void test_int2asc_two_digits(void)
 {
-   unsigned char ascii[5];
+   uint8_t ascii[5];
    int2asc(42, ascii);
    TEST_ASSERT(ascii[0] == '2' && ascii[1] == '4' && ascii[2] == '0' && ascii[3] == '0');
 }
 
 static void test_int2asc_three_digits(void)
 {
-   unsigned char ascii[5];
+   uint8_t ascii[5];
    int2asc(123, ascii);
    TEST_ASSERT(ascii[0] == '3' && ascii[1] == '2' && ascii[2] == '1' && ascii[3] == '0');
 }
 
 static void test_int2asc_four_digits(void)
 {
-   unsigned char ascii[5];
+   uint8_t ascii[5];
    int2asc(9999, ascii);
    TEST_ASSERT(ascii[0] == '9' && ascii[1] == '9' && ascii[2] == '9' && ascii[3] == '9');
 }
 
 static void test_int2asc_300(void)
 {
-   unsigned char ascii[5];
+   uint8_t ascii[5];
    int2asc(300, ascii);
    TEST_ASSERT(ascii[0] == '0' && ascii[1] == '0' && ascii[2] == '3' && ascii[3] == '0');
 }
 
 static void test_int2asc_240(void)
 {
-   unsigned char ascii[5];
+   uint8_t ascii[5];
    int2asc(240, ascii);
    TEST_ASSERT(ascii[0] == '0' && ascii[1] == '4' && ascii[2] == '2' && ascii[3] == '0');
 }
 
 static void test_int2asc_255(void)
 {
-   unsigned char ascii[5];
+   uint8_t ascii[5];
    int2asc(255, ascii);
    TEST_ASSERT(ascii[0] == '5' && ascii[1] == '5' && ascii[2] == '2' && ascii[3] == '0');
 }

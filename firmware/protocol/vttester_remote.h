@@ -9,6 +9,8 @@
 #ifndef VTTESTER_REMOTE_H
 #define VTTESTER_REMOTE_H
 
+#include <stdint.h>
+
 #define VTTESTER_FRAME_LEN 8
 
 /* --- Parse result: command type --- */
@@ -32,21 +34,21 @@
 
 /* --- Parsed SET parameters (from vttester_parse_message when cmd == SET) --- */
 typedef struct {
-   unsigned char uhdef;
-   unsigned char ihdef;
-   unsigned char ug1def;
-   unsigned int  uadef;
-   unsigned int  ug2def;
-   unsigned int  tuh_ticks;
-   unsigned char error_param;
-   unsigned int  error_value;
+   uint8_t uhdef;
+   uint8_t ihdef;
+   uint8_t ug1def;
+   uint16_t  uadef;
+   uint16_t  ug2def;
+   uint16_t  tuh_ticks;
+   uint8_t error_param;
+   uint16_t  error_value;
 } vttester_set_params_t;
 
 /* --- Parsed message (filled by vttester_parse_message) --- */
 typedef struct {
-   unsigned char cmd;           /* VTTESTER_CMD_* */
-   unsigned char index;         /* INDEX byte */
-   unsigned char err_code;     /* VTTESTER_ERR_* to send in ACK (parser sets for NONE and SET) */
+   uint8_t cmd;           /* VTTESTER_CMD_* */
+   uint8_t index;         /* INDEX byte */
+   uint8_t err_code;     /* VTTESTER_ERR_* to send in ACK (parser sets for NONE and SET) */
    vttester_set_params_t set;  /* valid when cmd == SET */
 } vttester_parsed_t;
 
@@ -55,18 +57,18 @@ typedef struct {
 /* Parse 8-byte frame. Returns VTTESTER_CMD_NONE, VTTESTER_CMD_SET, or VTTESTER_CMD_MEAS.
    Fills out->err_code (always): for NONE = CRC/INVALID_CMD/UNKNOWN, for SET = OK or OUT_OF_RANGE.
    For SET, out->set.error_param/error_value are set when err_code == OUT_OF_RANGE. */
-unsigned char vttester_parse_message(const unsigned char *frame, vttester_parsed_t *out);
+uint8_t vttester_parse_message(const uint8_t *frame, vttester_parsed_t *out);
 
 /* Build SET or MEAS ACK into buf (8 bytes). err_code = VTTESTER_ERR_*.
    When err_code == VTTESTER_ERR_OUT_OF_RANGE, param_id (1..5) and value
    are written to R2 and R3-R4; otherwise param_id/value are ignored. */
-void vttester_send_response(unsigned char *buf, unsigned char index, unsigned char err_code,
-   unsigned char param_id, unsigned int value);
+void vttester_send_response(uint8_t *buf, uint8_t index, uint8_t err_code,
+   uint8_t param_id, uint16_t value);
 
 /* Build MEAS result frame into buf (8 bytes). ihlcd 0..250, ialcd in 0.01mA,
    rangelcd 0/1, ig2lcd 0.01mA, slcd 0..999, alarm_bits = VTTESTER_ALARM_* mask. */
-void vttester_send_measurement(unsigned char *buf, unsigned char index,
-   unsigned int ihlcd, unsigned int ialcd, unsigned char rangelcd,
-   unsigned int ig2lcd, unsigned int slcd, unsigned char alarm_bits);
+void vttester_send_measurement(uint8_t *buf, uint8_t index,
+   uint16_t ihlcd, uint16_t ialcd, uint8_t rangelcd,
+   uint16_t ig2lcd, uint16_t slcd, uint8_t alarm_bits);
 
 #endif /* VTTESTER_REMOTE_H */

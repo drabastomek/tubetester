@@ -6,23 +6,23 @@
 #include <string.h>
 
 /* Control externs */
-unsigned char buf[64], adr, nowa, nodus, dusk0, zapisz, czytaj;
-unsigned int typ;
-unsigned char range, rangelcd, rangedef, txen, bufin[10];
-unsigned int start, tuh, vref;
-unsigned int uhset, ihset, ug1set, uaset, ug2set;
-unsigned int muhadc, mihadc, mug1adc, muaadc, miaadc, mug2adc, mig2adc;
-unsigned int ug1zer, ug1ref, uh, ih, ua, ia, ug2, ig2, ug1;
-unsigned int uhlcd, ihlcd, ug1lcd, ualcd, ialcd, ug2lcd, ig2lcd, slcd, rlcd, klcd;
-unsigned int s, r, k, lastyp;
-unsigned long licz, temp;
-unsigned char anode;
+uint8_t buf[64], adr, nowa, nodus, dusk0, zapisz, czytaj;
+uint16_t typ;
+uint8_t range, rangelcd, rangedef, txen, bufin[10];
+uint16_t start, tuh, vref;
+uint16_t uhset, ihset, ug1set, uaset, ug2set;
+uint16_t muhadc, mihadc, mug1adc, muaadc, miaadc, mug2adc, mig2adc;
+uint16_t ug1zer, ug1ref, uh, ih, ua, ia, ug2, ig2, ug1;
+uint16_t uhlcd, ihlcd, ug1lcd, ualcd, ialcd, ug2lcd, ig2lcd, slcd, rlcd, klcd;
+uint16_t s, r, k, lastyp;
+uint32_t licz, temp;
+uint8_t anode;
 katalog lamprem, lamptem;
-unsigned int poptyp;
+uint16_t poptyp;
 katalog lampeep[ELAMP];
 
 /* AZ: index 0..25 A-Z, 26=_, 27..35 '0'..'9' (nazwa bytes are indices into AZ) */
-const unsigned char AZ[37] = {
+const uint8_t AZ[37] = {
    'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z',
    '_', '0','1','2','3','4','5','6','7','8','9'
 };
@@ -34,7 +34,7 @@ static const katalog lamprom[FLAMP] = {
    { {'6','N','1','P',' ',' ','G','1','1'}, 63, 0, 40, 250, 75, 0, 0, 45, 8, 35 },
 };
 
-void load_lamprom(unsigned int idx, katalog *dest)
+void load_lamprom(uint16_t idx, katalog *dest)
 {
    if (idx < FLAMP)
       memcpy(dest, &lamprom[idx], sizeof(katalog));

@@ -8,29 +8,29 @@
 #endif
 #include <string.h>
 
-const unsigned char AZ[37] =
+const uint8_t AZ[37] =
 { 'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z','_','0','1','2','3','4','5','6','7','8','9' };
 
 /* CRC-8 only in protocol (vttester_remote.c) for 8-byte frames. 10-byte legacy path uses no CRC. */
 
 // Cyrillic characters for LCD display
-char cyrZ[8] = { 0b10101, 0b10101, 0b10101, 0b01110, 0b10101, 0b10101, 0b10101, 0b00000 };
-char cyrG[8] = { 0b11111, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b00000 };
-char cyrB[8] = { 0b11110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b11110, 0b00000 };
-char cyrD[8] = { 0b01111, 0b01001, 0b01001, 0b01001, 0b10001, 0b11111, 0b10001, 0b00000 };
-char cyrI[8] = { 0b10001, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b10001, 0b00000 };
-char cyrP[8] = { 0b11111, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b00000 };
-char cyrC[8] = { 0b10010, 0b10010, 0b10010, 0b10010, 0b10010, 0b11111, 0b00001, 0b00000 };
-char cyrF[8] = { 0b00100, 0b11111, 0b10101, 0b10101, 0b11111, 0b00100, 0b00000, 0b00000 };
-char cyrL[8] = { 0b00111, 0b01001, 0b01001, 0b01001, 0b01001, 0b01001, 0b10001, 0b00000 };
-char cyrE[8] = { 0b11110, 0b00001, 0b00001, 0b00111, 0b00001, 0b00001, 0b11110, 0b00000 };
+uint8_t cyrZ[8] = { 0b10101, 0b10101, 0b10101, 0b01110, 0b10101, 0b10101, 0b10101, 0b00000 };
+uint8_t cyrG[8] = { 0b11111, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b00000 };
+uint8_t cyrB[8] = { 0b11110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b11110, 0b00000 };
+uint8_t cyrD[8] = { 0b01111, 0b01001, 0b01001, 0b01001, 0b10001, 0b11111, 0b10001, 0b00000 };
+uint8_t cyrI[8] = { 0b10001, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b10001, 0b00000 };
+uint8_t cyrP[8] = { 0b11111, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b00000 };
+uint8_t cyrC[8] = { 0b10010, 0b10010, 0b10010, 0b10010, 0b10010, 0b11111, 0b00001, 0b00000 };
+uint8_t cyrF[8] = { 0b00100, 0b11111, 0b10101, 0b10101, 0b11111, 0b00100, 0b00000, 0b00000 };
+uint8_t cyrL[8] = { 0b00111, 0b01001, 0b01001, 0b01001, 0b01001, 0b01001, 0b10001, 0b00000 };
+uint8_t cyrE[8] = { 0b11110, 0b00001, 0b00001, 0b00111, 0b00001, 0b00001, 0b11110, 0b00000 };
 
 /* EEPROM variables (avr-gcc: EEMEM => .eeprom section; ICCAVR: RAM so EEPROM_READ/WRITE as memcpy work) */
 #if defined(ICCAVR)
-unsigned int poptyp = 0;
+uint16_t poptyp = 0;
 katalog lampeep[ELAMP] = {
 #else
-unsigned int EEMEM poptyp = 0;
+uint16_t EEMEM poptyp = 0;
 katalog EEMEM lampeep[ELAMP] = {
 #endif
 {{ 11, 31, 26, 26, 26, 26,  9, 27, 28 }, 0,  0,  0,  0,   0,  0,   0,  0,  0,   0  },
@@ -438,7 +438,7 @@ const katalog lamprom[FLAMP] PROGMEM =
 };
 
 /* load from ROM catalog; ICCAVR: lamprom in RAM so plain memcpy */
-void load_lamprom(unsigned int idx, katalog *dest)
+void load_lamprom(uint16_t idx, katalog *dest)
 {
 #if defined(ICCAVR)
    memcpy(dest, &lamprom[idx], sizeof(katalog));
