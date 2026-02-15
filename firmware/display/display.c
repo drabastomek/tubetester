@@ -16,10 +16,10 @@
 #endif
 
 /* From main */
-extern unsigned char buf[64], adr, typ, takt, dusk0, err;
-extern unsigned int start;
+extern uint8_t buf[64], adr, takt, dusk0, err;
+extern uint16_t typ, start;
 
-void cmd2lcd(char rs, char bajt)
+void cmd2lcd(uint8_t rs, uint8_t bajt)
 {
    delay(1);
    if (rs) { RSSET; } else { RSRST; }
@@ -35,22 +35,22 @@ void cmd2lcd(char rs, char bajt)
    ENRST;
 }
 
-void gotoxy(char x, char y)
+void gotoxy(uint8_t x, uint8_t y)
 {
    cmd2lcd(0, 0x80 | (64 * (y % 2) + 20 * (y / 2) + x)); /* 4x20 */
 }
 
-void char2lcd(char f, char c)
+void char2lcd(uint8_t f, uint8_t c)
 {
    cmd2lcd(1, ((f == 1) && (takt == 0)) ? ' ' : c);
 }
 
-void cstr2lcd(char f, const unsigned char *c)
+void cstr2lcd(uint8_t f, const uint8_t *c)
 {
    while (*c) { char2lcd(f, *c); c++; }
 }
 
-void str2lcd(char f, unsigned char *c)
+void str2lcd(uint8_t f, uint8_t *c)
 {
    while (*c) { char2lcd(f, *c); c++; }
 }
@@ -61,8 +61,8 @@ void str2lcd(char f, unsigned char *c)
 #ifndef VTTESTER_HOST_TEST
 void display_init(void)
 {
-   unsigned char i;
-   extern char cyrB[8], cyrC[8], cyrD[8], cyrF[8], cyrG[8], cyrI[8], cyrP[8], cyrZ[8];
+   uint8_t i;
+   extern uint8_t cyrB[8], cyrC[8], cyrD[8], cyrF[8], cyrG[8], cyrI[8], cyrP[8], cyrZ[8];
 
    /* HD44780 needs ≥40 ms after Vcc before first command */
    delay(50);
@@ -81,17 +81,17 @@ void display_init(void)
    cmd2lcd(0, (0x40 | 0x30)); for (i = 0; i < 8; i++) { cmd2lcd(1, cyrP[i]); }
    cmd2lcd(0, (0x40 | 0x38)); for (i = 0; i < 8; i++) { cmd2lcd(1, cyrZ[i]); }
 
-   gotoxy(0, 0); cstr2lcd(0, (const unsigned char *)"   VTTester 2.06    ");
-   gotoxy(0, 1); cstr2lcd(0, (const unsigned char *)"Tomasz|Adam |       ");
-   gotoxy(0, 2); cstr2lcd(0, (const unsigned char *)"Gumny |Tatus|       ");
-   gotoxy(0, 3); cstr2lcd(0, (const unsigned char *)"forum-trioda.pl/    ");
+   gotoxy(0, 0); cstr2lcd(0, (const uint8_t *)"   VTTester 2.06    ");
+   gotoxy(0, 1); cstr2lcd(0, (const uint8_t *)"Tomasz|Adam |       ");
+   gotoxy(0, 2); cstr2lcd(0, (const uint8_t *)"Gumny |Tatus|       ");
+   gotoxy(0, 3); cstr2lcd(0, (const uint8_t *)"forum-trioda.pl/    ");
 }
 #endif /* !VTTESTER_HOST_TEST */
 
 /* Build row 0: number (buf[0..2]), name (buf[4..12]), " G", "-", Ug1 (buf[24..27]). */
-void display_build_row0(const unsigned char *buf, unsigned char adr, unsigned int start, char *out)
+void display_build_row0(const uint8_t *buf, uint8_t adr, uint16_t start, char *out)
 {
-   unsigned char i;
+   uint8_t i;
    (void)adr;
    (void)start;
    out[0] = buf[0];
@@ -109,9 +109,9 @@ void display_build_row0(const unsigned char *buf, unsigned char adr, unsigned in
    out[20] = '\0';
 }
 
-void display_build_row1(const unsigned char *buf, unsigned char adr, char *out)
+void display_build_row1(const uint8_t *buf, uint8_t adr, char *out)
 {
-   unsigned char i = 0;
+   uint8_t i = 0;
    (void)adr;
    out[i++] = 'H';
    out[i++] = '=';
@@ -136,9 +136,9 @@ void display_build_row1(const unsigned char *buf, unsigned char adr, char *out)
    out[20] = '\0';
 }
 
-void display_build_row2(const unsigned char *buf, unsigned char adr, unsigned char err, char *out)
+void display_build_row2(const uint8_t *buf, uint8_t adr, uint8_t err, char *out)
 {
-   unsigned char i = 0, e = ' ';
+   uint8_t i = 0, e = ' ';
    if ((err & OVERIH) == OVERIH) e = 'H';
    if ((err & OVERIA) == OVERIA) e = 'A';
    if ((err & OVERIG) == OVERIG) e = 'G';
@@ -167,10 +167,10 @@ void display_build_row2(const unsigned char *buf, unsigned char adr, unsigned ch
    out[20] = '\0';
 }
 
-void display_build_row3(unsigned char typ, unsigned int start, unsigned char dusk0, const unsigned char *buf, unsigned char adr, char *out)
+void display_build_row3(uint16_t typ, uint16_t start, uint8_t dusk0, const uint8_t *buf, uint8_t adr, char *out)
 {
-   unsigned char ascii[5];
-   unsigned char i;
+   uint8_t ascii[5];
+   uint8_t i;
    (void)adr;
    if (typ > 1) {
       memset(out, ' ', 20);
@@ -224,8 +224,8 @@ void display_build_row3(unsigned char typ, unsigned int start, unsigned char dus
 /* Draw current screen from buf[]; row 3 depends on typ (local vs power supply/remote). */
 void display_refresh(void)
 {
-   unsigned char i, errcode;
-   unsigned char ascii[5];
+   uint8_t i, errcode;
+   uint8_t ascii[5];
 
    gotoxy(0, 0);
    str2lcd((adr == 0) && (start != (FUH+2)), &buf[0]);
@@ -235,16 +235,16 @@ void display_refresh(void)
    for (i = 0; i < 9; i++)
       char2lcd(((adr-1) == i) || ((i == 7) && (start == (FUH+2)) && ((buf[11] == '1') || (buf[11] == '2'))), buf[i+4]);
    gotoxy(13, 0);
-   cstr2lcd(0, (const unsigned char *)" G");
+   cstr2lcd(0, (const uint8_t *)" G");
    char2lcd(adr == 10, '-');
    str2lcd(adr == 10, &buf[24]);
 
    gotoxy(0, 1);
-   cstr2lcd(0, (const unsigned char *)"H=");
+   cstr2lcd(0, (const uint8_t *)"H=");
    str2lcd(adr == 11, &buf[14]);
-   cstr2lcd(0, (const unsigned char *)"V A=");
+   cstr2lcd(0, (const uint8_t *)"V A=");
    str2lcd(adr == 13, &buf[29]);
-   cstr2lcd(0, (const unsigned char *)" G2=");
+   cstr2lcd(0, (const uint8_t *)" G2=");
    str2lcd(adr == 15, &buf[39]);
 
    gotoxy(0, 2);
@@ -256,7 +256,7 @@ void display_refresh(void)
    char2lcd(0, errcode);
    char2lcd(0, ' ');
    str2lcd(adr == 12, &buf[19]);
-   cstr2lcd(0, (const unsigned char *)"mA ");
+   cstr2lcd(0, (const uint8_t *)"mA ");
    str2lcd(adr == 14, &buf[33]);
    char2lcd(0, ' ');
    str2lcd(adr == 16, &buf[43]);
@@ -264,17 +264,17 @@ void display_refresh(void)
    gotoxy(0, 3);
    if (typ > 1) {
       gotoxy(0, 3);
-      cstr2lcd(0, (const unsigned char *)"S=");
+      cstr2lcd(0, (const uint8_t *)"S=");
       str2lcd(adr == 17, &buf[49]);
       gotoxy(6, 3);
-      cstr2lcd(0, (const unsigned char *)" R=");
+      cstr2lcd(0, (const uint8_t *)" R=");
       str2lcd(adr == 18, &buf[54]);
       gotoxy(13, 3);
       if ((start <= (FUH+2)) || (dusk0 == DMAX)) {
-         cstr2lcd(0, (const unsigned char *)" K=");
+         cstr2lcd(0, (const uint8_t *)" K=");
          str2lcd(adr == 19, &buf[59]);
       } else {
-         cstr2lcd(0, (const unsigned char *)" T=");
+         cstr2lcd(0, (const uint8_t *)" T=");
          int2asc(start >> 2, ascii);
          if (ascii[2] != '0') {
             char2lcd(0, ascii[2]);
@@ -292,9 +292,9 @@ void display_refresh(void)
       }
    } else {
       if (typ == 0) {
-         cstr2lcd(0, (const unsigned char *)"                    ");
+         cstr2lcd(0, (const uint8_t *)"                    ");
       } else {
-         cstr2lcd(0, (const unsigned char *)" TX/RX: 9600,8,N,1  ");
+         cstr2lcd(0, (const uint8_t *)" TX/RX: 9600,8,N,1  ");
       }
    }
 }

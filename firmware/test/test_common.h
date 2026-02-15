@@ -6,9 +6,10 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 
-extern int test_failed;
-extern int test_run;
+extern uint32_t test_failed;
+extern uint32_t test_run;
 
 #define TEST_ASSERT(cond) do { \
    test_run++; \

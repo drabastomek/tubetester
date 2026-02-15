@@ -20,7 +20,7 @@
 #define VTTESTER_SET_TUH_TICK_SCALE  2
 
 /* Display row builders (match firmware config) */
-#define FUH        (unsigned int)(2)
+#define FUH        (uint16_t)(2)
 #define DMIN      20
 #define DMAX      250
 #define OVERIH    0b00000001
@@ -32,17 +32,17 @@
 #define FLAMP_TEST  3u
 #define ELAMP_TEST  2u
 typedef struct {
-   unsigned char nazwa[9];
-   unsigned char uhdef;
-   unsigned char ihdef;
-   unsigned char ug1def;
-   unsigned int  uadef;
-   unsigned int  iadef;
-   unsigned int  ug2def;
-   unsigned int  ig2def;
-   unsigned int  sdef;
-   unsigned int  rdef;
-   unsigned int  kdef;
+   uint8_t nazwa[9];
+   uint8_t uhdef;
+   uint8_t ihdef;
+   uint8_t ug1def;
+   uint16_t  uadef;
+   uint16_t  iadef;
+   uint16_t  ug2def;
+   uint16_t  ig2def;
+   uint16_t  sdef;
+   uint16_t  rdef;
+   uint16_t  kdef;
 } katalog;
 
 #define FLAMP  FLAMP_TEST

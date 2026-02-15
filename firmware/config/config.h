@@ -6,6 +6,8 @@
 #ifndef VTTESTER_CONFIG_H
 #define VTTESTER_CONFIG_H
 
+#include <stdint.h>
+
 #if defined(ICCAVR)
 /* Unify the calls to EEPROM_READ across iccavr and avr-gcc */
 #include <string.h>
@@ -20,8 +22,8 @@
 
 /* --- MCU / asm helpers --- */
 #define BIT(x)  (1<<(x))
-#define LOW(x)  ((char)((int)(x)))
-#define HIGH(x) ((char)(((int)(x))>>8))
+#define LOW(x)  ((uint8_t)((uint16_t)(x)))
+#define HIGH(x) ((uint8_t)(((uint16_t)(x))>>8))
 #define ESC     '\033'
 #if defined(ICCAVR)
 /* ImageCraft ICCAVR: use lowercase asm mnemonic; NOP2 = short delay for LCD timing */
@@ -88,8 +90,8 @@
 #define ADRUG1  0b00000111
 
 /* --- Catalog sizes --- */
-#define FLAMP   (unsigned int)(1+1+357)
-#define ELAMP   (unsigned int)(39)
+#define FLAMP   (uint16_t)(1+1+357)
+#define ELAMP   (uint16_t)(39)
 
 /* --- VTTester protocol (SET param limits; #define to save RAM) --- */
 #define VTTESTER_SET_HEAT_IDX_MAX    7   /* P1 heater index: 0..7 only */
@@ -116,17 +118,17 @@
 /* --- Tube catalog entry --- */
 typedef struct
 {
-   unsigned char nazwa[9];
-   unsigned char uhdef;
-   unsigned char ihdef;
-   unsigned char ug1def;
-   unsigned int  uadef;
-   unsigned int  iadef;
-   unsigned int  ug2def;
-   unsigned int  ig2def;
-   unsigned int  sdef;
-   unsigned int  rdef;
-   unsigned int  kdef;
+   uint8_t nazwa[9];
+   uint8_t uhdef;
+   uint8_t ihdef;
+   uint8_t ug1def;
+   uint16_t  uadef;
+   uint16_t  iadef;
+   uint16_t  ug2def;
+   uint16_t  ig2def;
+   uint16_t  sdef;
+   uint16_t  rdef;
+   uint16_t  kdef;
 } katalog;
 
 /* ROM tube catalog: PROGMEM only for avr-gcc firmware; host tests and ICCAVR use RAM. */
@@ -136,14 +138,14 @@ typedef struct
 #define KATALOG_PROGMEM __attribute__((__progmem__))
 #endif
 extern const katalog lamprom[] KATALOG_PROGMEM;
-void load_lamprom(unsigned int idx, katalog *dest);
+void load_lamprom(uint16_t idx, katalog *dest);
 
 /* Lookup / tables (defined in config.c) */
-extern const unsigned char AZ[37];
-extern char cyrZ[8], cyrG[8], cyrB[8], cyrD[8], cyrI[8], cyrP[8], cyrC[8], cyrF[8], cyrL[8], cyrE[8];
+extern const uint8_t AZ[37];
+extern uint8_t cyrZ[8], cyrG[8], cyrB[8], cyrD[8], cyrI[8], cyrP[8], cyrC[8], cyrF[8], cyrL[8], cyrE[8];
 
 /* EEPROM (defined in config.c) */
-extern unsigned int poptyp;
+extern uint16_t poptyp;
 extern katalog lampeep[ELAMP];
 
 #endif /* VTTESTER_CONFIG_H */

@@ -19,9 +19,11 @@
 #include "display/display.h"
 #include "control/control.h"
 
+#if defined(ICCAVR)
 #pragma data:data
+#endif
 
-unsigned char
+uint8_t
    d, i,
    txen,
    *cwart, cwartmin, cwartmax,
@@ -49,7 +51,7 @@ unsigned char
    remote_meas_index;
 
 /* ISR ↔ main shared: must be volatile so optimizer does not assume they never change */
-volatile unsigned char
+volatile uint8_t
    busy,       /* USART_TXC clears; main waits in char2rs */
    sync,       /* TIMER2_COMP sets; main checks in loop */
    zwloka,     /* TIMER2_COMP decrements; delay() spins */
@@ -57,7 +59,7 @@ volatile unsigned char
    rx_proto_pos,
    rx_proto_ready;
 
-unsigned int
+uint16_t
    *wart, wartmin, wartmax,
    start, tuh,
    vref,
@@ -77,7 +79,7 @@ unsigned int
    srezadc, mrezadc,
    bufinta, bufintg2;
 
-unsigned long
+uint32_t
    lint, tint, licz, temp;
 
 katalog
@@ -506,8 +508,8 @@ ISR(ADC_vect)
                   tint >>= 16;        //  /= 65536;
                   if( lint > tint ) { lint -= tint; } else { lint = 0; }
                   lint /= 10;
-                  if( (uhset > (unsigned int)lint) && (pwm < 255) ) { pwm++; }
-                  if( (uhset < (unsigned int)lint) && (pwm >   0) ) { pwm--; }
+                  if( (uhset > (uint16_t)lint) && (pwm < 255) ) { pwm++; }
+                  if( (uhset < (uint16_t)lint) && (pwm >   0) ) { pwm--; }
                }
 //***** Stabilizacja Ih ***************************************
                if( ihset > 0 )
@@ -515,11 +517,11 @@ ISR(ADC_vect)
                   lint = mihadc;
                   lint *= vref;
                   lint >>= 15;    //   /= 32768;
-                  if( (ihset > (unsigned int)lint) )
+                  if( (ihset > (uint16_t)lint) )
                   {
                      if( (pwm < 8) || ((mihadc > 32) && (pwm < 255)) ) { pwm++; } // Uh<0.5V lub Ih>5mA
                   }
-                  if( (ihset < (unsigned int)lint) && (pwm >   0) ) { pwm--; }
+                  if( (ihset < (uint16_t)lint) && (pwm >   0) ) { pwm--; }
                }
             }
             if( pwm == 0 )
@@ -578,7 +580,7 @@ ISR(USART_RXC_vect)
          bufinta = bufin[6]; bufinta <<= 8; bufinta += bufin[5];
          bufintg2 = bufin[8]; bufintg2 <<= 8; bufintg2 += bufin[7];
 
-         if( (((unsigned int)(bufin[6])<<8) + bufin[5]) > 300 ) NOP;
+         if( (((uint16_t)(bufin[6])<<8) + bufin[5]) > 300 ) NOP;
 
          /* 10-byte legacy path: no CRC (backward-compatible LCD dump); byte 9 unused */
          if( !((bufin[0] != ESC)||
@@ -703,7 +705,7 @@ ISR(TIMER2_COMP_vect)
       if( start == (    (                                   TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { ual = ua; ial = (range==0)?ia:ia*10; } // IaaL
       if( start == (    (                                        TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { uaset = lamptem.uadef + 10; } // UaR
       if( start == (    (                                            TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { uar = ua; iar = (range==0)?ia:ia*10; if( iar != ial ) { uar -= ual; uar *= 1000; iar -= ial; r = uar; r /= iar; } else r = 999; } // IaaR R
-      if( start == (    (                                                 TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { uaset = lamptem.uadef; lint = s; lint *= r; lint += 50; lint /= 100; if( lint < 9999 ) { k = (unsigned int)lint; } else k = 9999; } // K=R*S
+      if( start == (    (                                                 TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { uaset = lamptem.uadef; lint = s; lint *= r; lint += 50; lint /= 100; if( lint < 9999 ) { k = (uint16_t)lint; } else k = 9999; } // K=R*S
       if( start == (    (                                                     TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { uhlcd = uh; ihlcd = ih; ug1lcd = ug1; ualcd = ua; ialcd = ia; rangelcd = range; ug2lcd = ug2; ig2lcd = ig2; slcd = s; rlcd = r; klcd = k; txen = 1; if( remote_meas_pending ) remote_meas_ready = 1; }
       if( start == (    (                                                          FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { ug2set = 0; if( typ == 0 ) lamptem.ug2def = 0; }
       if( start == (    (                                                               FUA+FUG+(BIP-0)+FUH+2)) ) { uaset = 0; if( typ == 0 ) lamptem.uadef = 0; }
@@ -734,7 +736,7 @@ ISR(TIMER2_COMP_vect)
 //      Program glowny
 //*************************************************************
 
-void main(void)
+int main(void)
 {
 //***** Konfiguracja portow ***********************************
                             //   7   6   5   4   3   2   1   0
@@ -809,7 +811,7 @@ void main(void)
    wartmin = 0;
    wartmax = (ELAMP+FLAMP-1);  // wszystkie lampy
    wart = &typ;                               // wskaz na Typ
-   EEPROM_READ((int)&poptyp, typ); // ustaw na ostatnio aktywny
+   EEPROM_READ(&poptyp, typ); // ustaw na ostatnio aktywny
    lastyp = typ;
    ADMUX = ADRIH;
 
@@ -845,7 +847,7 @@ void main(void)
             if( rx_proto_ready )
             {
                vttester_parsed_t parsed;
-               unsigned char cmd, i;
+               uint8_t cmd, i;
                rx_proto_ready = 0;
                cmd = vttester_parse_message( rx_proto_buf, &parsed );
                // if command is SET, check if it's valid and send ACK or ERR
@@ -863,7 +865,7 @@ void main(void)
                      ug1set = ug1ref = liczug1( parsed.set.ug1def );
                      uaset = parsed.set.uadef;
                      ug2set = parsed.set.ug2def;
-                     tuh = (unsigned int)parsed.set.tuh_ticks * 240u / 60u;
+                     tuh = (uint16_t)parsed.set.tuh_ticks * 240u / 60u;
                      lamptem = lamprem;
                   }
                   // send ACK or ERR
@@ -890,7 +892,7 @@ void main(void)
             // if measurement is ready, send the result
             if( remote_meas_ready )
             {
-               unsigned char alarm_bits = 0, i;
+               uint8_t alarm_bits = 0, i;
                if( err & OVERIH ) alarm_bits |= VTTESTER_ALARM_OVERIH;
                if( err & OVERIA ) alarm_bits |= VTTESTER_ALARM_OVERIA;
                if( err & OVERIG ) alarm_bits |= VTTESTER_ALARM_OVERIG;
@@ -916,5 +918,6 @@ void main(void)
 //***** Menu, katalog, edycja, obliczenia (wypelnianie buf[]) *****
       control_update( ascii );
    }
-}
 
+   return 0;
+}

@@ -2,10 +2,11 @@
  * Test runner: run all unit tests and exit 0 if all pass, 1 otherwise.
  */
 #include "test_common.h"
+#include <inttypes.h>
 #include <stdio.h>
 
-int test_failed;
-int test_run;
+uint32_t test_failed;
+uint32_t test_run;
 
 extern void run_protocol_tests(void);
 extern void run_utils_tests(void);
@@ -20,9 +21,9 @@ int main(void)
    run_display_tests();
    run_control_tests();
    if (TEST_FAILED()) {
-      fprintf(stderr, "FAILED: %d / %d\n", TEST_FAILED(), TEST_RUN());
+      fprintf(stderr, "FAILED: %" PRIu32 " / %" PRIu32 "\n", TEST_FAILED(), TEST_RUN());
       return 1;
    }
-   printf("OK: %d tests\n", TEST_RUN());
+   printf("OK: %" PRIu32 " tests\n", TEST_RUN());
    return 0;
 }

@@ -14,9 +14,9 @@
 #define CMD_MEAS 1
 
 #if !defined(VTTESTER_HOST_TEST) && !defined(ICCAVR)
-static const unsigned char crc8_table[256] PROGMEM = {
+static const uint8_t crc8_table[256] PROGMEM = {
 #else
-static const unsigned char crc8_table[256] = {
+static const uint8_t crc8_table[256] = {
 #endif
     0x00,0x07,0x0E,0x09,0x1C,0x1B,0x12,0x15,0x38,0x3F,0x36,0x31,0x24,0x23,0x2A,0x2D,
     0x70,0x77,0x7E,0x79,0x6C,0x6B,0x62,0x65,0x48,0x4F,0x46,0x41,0x54,0x53,0x5A,0x5D,
@@ -36,9 +36,9 @@ static const unsigned char crc8_table[256] = {
     0xDE,0xD9,0xD0,0xD7,0xC2,0xC5,0xCC,0xCB,0xE6,0xE1,0xE8,0xEF,0xFA,0xFD,0xF4,0xF3
 };
 
-static unsigned char crc8_compute(const unsigned char *data, unsigned char len)
+static uint8_t crc8_compute(const uint8_t *data, uint8_t len)
 {
-    unsigned char crc = 0;
+    uint8_t crc = 0;
 #if !defined(VTTESTER_HOST_TEST) && !defined(ICCAVR)
     while (len--) crc = pgm_read_byte(&crc8_table[crc ^ *data++]);
 #else
@@ -47,22 +47,22 @@ static unsigned char crc8_compute(const unsigned char *data, unsigned char len)
     return crc;
 }
 
-static void frame_append_crc(unsigned char *f)
+static void frame_append_crc(uint8_t *f)
 {
     f[7] = crc8_compute(f, 7);
 }
 
 /* HEAT_IDX 0..7 -> uhdef (0.1V). 0=off, 1=1.4, 2=2.0, 3=2.5, 4=4.0, 5=5.0, 6=6.3, 7=12.6 */
-static const unsigned char heat_voltage[8] = { 0, 14, 20, 25, 40, 50, 63, 126 };
+static const uint8_t heat_voltage[8] = { 0, 14, 20, 25, 40, 50, 63, 126 };
 
 /* Simplified SET encoding (no resolution bits): P1 low nibble = heat 0..7; P2/P3 = byte*10 V, max 300 V;
    P4 -> ug1def = P4*5 (0.1V magnitude, 0..240; 240 = -24 V, same as old code and protocol).
    Byte 6 = tuh index 0..63 (500ms/step), tuh_ticks = index*TUH_TICK_SCALE. Main app: ug1set = liczug1(parsed.set.ug1def). */
-unsigned char vttester_parse_message(const unsigned char *frame, vttester_parsed_t *out)
+uint8_t vttester_parse_message(const uint8_t *frame, vttester_parsed_t *out)
 {
-    unsigned char cmd, p1, p2, p3, p4, tuh_index;
-    unsigned char heat_idx;
-    unsigned int ua_v, ug2_v, p4_val_01;
+    uint8_t cmd, p1, p2, p3, p4, tuh_index;
+    uint8_t heat_idx;
+    uint16_t ua_v, ug2_v, p4_val_01;
 
     out->cmd = VTTESTER_CMD_NONE;
     out->index = frame[1];
@@ -104,8 +104,8 @@ unsigned char vttester_parse_message(const unsigned char *frame, vttester_parsed
     out->set.uhdef = heat_voltage[heat_idx];
     out->set.ihdef = 0;
 
-    ua_v = (unsigned int)p2 * VTTESTER_SET_UA_SCALE;
-    if (ua_v > (unsigned int)VTTESTER_SET_UA_MAX) {
+    ua_v = (uint16_t)p2 * VTTESTER_SET_UA_SCALE;
+    if (ua_v > (uint16_t)VTTESTER_SET_UA_MAX) {
         out->cmd = VTTESTER_CMD_SET;
         out->err_code = VTTESTER_ERR_OUT_OF_RANGE;  /* P2: Ua 10 V steps, max 300 V. */
         out->set.error_param = 2;
@@ -114,8 +114,8 @@ unsigned char vttester_parse_message(const unsigned char *frame, vttester_parsed
     }
     out->set.uadef = ua_v;
 
-    ug2_v = (unsigned int)p3 * VTTESTER_SET_UA_SCALE;
-    if (ug2_v > (unsigned int)VTTESTER_SET_UG2_MAX) {
+    ug2_v = (uint16_t)p3 * VTTESTER_SET_UA_SCALE;
+    if (ug2_v > (uint16_t)VTTESTER_SET_UG2_MAX) {
         out->cmd = VTTESTER_CMD_SET;
         out->err_code = VTTESTER_ERR_OUT_OF_RANGE;  /* P3: Ug2 10 V steps, max 300 V. */
         out->set.error_param = 3;
@@ -124,16 +124,16 @@ unsigned char vttester_parse_message(const unsigned char *frame, vttester_parsed
     }
     out->set.ug2def = ug2_v;
 
-    p4_val_01 = (unsigned int)p4 * VTTESTER_SET_UG1_P4_STEP;
-    if (p4_val_01 > (unsigned int)VTTESTER_SET_UG1_MAX) {
+    p4_val_01 = (uint16_t)p4 * VTTESTER_SET_UG1_P4_STEP;
+    if (p4_val_01 > (uint16_t)VTTESTER_SET_UG1_MAX) {
         out->cmd = VTTESTER_CMD_SET;
         out->err_code = VTTESTER_ERR_OUT_OF_RANGE;  /* P4: ug1def in 0.1V magnitude, max 240 (= -24 V). */
         out->set.error_param = 4;
-        out->set.error_value = (unsigned int)p4;
+        out->set.error_value = (uint16_t)p4;
         return VTTESTER_CMD_SET;
     }
     /* Same as old code: ug1def 0..240 in 0.1V units, 240 = -24.0 V (liczug1(240) in main app). */
-    out->set.ug1def = (unsigned char)p4_val_01;
+    out->set.ug1def = (uint8_t)p4_val_01;
 
     if (tuh_index > VTTESTER_SET_TUH_INDEX_MAX) {
         out->cmd = VTTESTER_CMD_SET;
@@ -143,14 +143,14 @@ unsigned char vttester_parse_message(const unsigned char *frame, vttester_parsed
         return VTTESTER_CMD_SET;
     }
     out->err_code = VTTESTER_ERR_OK;  /* All SET params within range. */
-    out->set.tuh_ticks = (unsigned int)tuh_index * VTTESTER_SET_TUH_TICK_SCALE;
+    out->set.tuh_ticks = (uint16_t)tuh_index * VTTESTER_SET_TUH_TICK_SCALE;
 
     out->cmd = VTTESTER_CMD_SET;
     return VTTESTER_CMD_SET;
 }
 
-void vttester_send_response(unsigned char *buf, unsigned char index, unsigned char err_code,
-    unsigned char param_id, unsigned int value)
+void vttester_send_response(uint8_t *buf, uint8_t index, uint8_t err_code,
+    uint8_t param_id, uint16_t value)
 {
     buf[0] = 0x02;
     buf[1] = index;
@@ -158,34 +158,35 @@ void vttester_send_response(unsigned char *buf, unsigned char index, unsigned ch
     buf[3] = buf[4] = buf[5] = buf[6] = 0;
     if (err_code == VTTESTER_ERR_OUT_OF_RANGE) {
         buf[3] = param_id;
-        buf[4] = (unsigned char)(value >> 8);
-        buf[5] = (unsigned char)(value & 0xFF);
+        buf[4] = (uint8_t)(value >> 8);
+        buf[5] = (uint8_t)(value & 0xFF);
     }
     frame_append_crc(buf);
 }
 
-void vttester_send_measurement(unsigned char *buf, unsigned char index,
-    unsigned int ihlcd, unsigned int ialcd, unsigned char rangelcd,
-    unsigned int ig2lcd, unsigned int slcd, unsigned char alarm_bits)
+void vttester_send_measurement(uint8_t *buf, uint8_t index,
+    uint16_t ihlcd, uint16_t ialcd, uint8_t rangelcd,
+    uint16_t ig2lcd, uint16_t slcd, uint8_t alarm_bits)
 {
-    unsigned int r;
+    uint16_t r;
+    (void)rangelcd;
 
     buf[0] = 0x02;
     buf[1] = index;
     if (ihlcd > 255) r = 255; else r = ihlcd;
-    buf[2] = (unsigned char)r;
+    buf[2] = (uint8_t)r;
     r = ialcd + 5;
     r /= 10;
     if (r > 255) r = 255;
-    buf[3] = (unsigned char)r;
-    r = (unsigned int)ig2lcd * 10u + 8u;
+    buf[3] = (uint8_t)r;
+    r = (uint16_t)ig2lcd * 10u + 8u;
     r /= 16u;
     if (r > 255) r = 255;
-    buf[4] = (unsigned char)r;
+    buf[4] = (uint8_t)r;
     r = slcd + 5;
     r /= 10;
     if (r > 255) r = 255;
-    buf[5] = (unsigned char)r;
+    buf[5] = (uint8_t)r;
     buf[6] = alarm_bits & 0xF0;
     frame_append_crc(buf);
 }

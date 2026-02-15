@@ -6,9 +6,9 @@
 #include <stdio.h>
 
 /* Compute CRC-8 (same polynomial as firmware) for building valid frames. */
-static unsigned char crc8(const unsigned char *data, unsigned char len)
+static uint8_t crc8(const uint8_t *data, uint8_t len)
 {
-   static const unsigned char table[256] = {
+   static const uint8_t table[256] = {
       0x00,0x07,0x0E,0x09,0x1C,0x1B,0x12,0x15,0x38,0x3F,0x36,0x31,0x24,0x23,0x2A,0x2D,
       0x70,0x77,0x7E,0x79,0x6C,0x6B,0x62,0x65,0x48,0x4F,0x46,0x41,0x54,0x53,0x5A,0x5D,
       0xE0,0xE7,0xEE,0xE9,0xFC,0xFB,0xF2,0xF5,0xD8,0xDF,0xD6,0xD1,0xC4,0xC3,0xCA,0xCD,
@@ -26,13 +26,13 @@ static unsigned char crc8(const unsigned char *data, unsigned char len)
       0xAE,0xA9,0xA0,0xA7,0xB2,0xB5,0xBC,0xBB,0x96,0x91,0x98,0x9F,0x8A,0x8D,0x84,0x83,
       0xDE,0xD9,0xD0,0xD7,0xC2,0xC5,0xCC,0xCB,0xE6,0xE1,0xE8,0xEF,0xFA,0xFD,0xF4,0xF3
    };
-   unsigned char c = 0;
+   uint8_t c = 0;
    while (len--) c = table[c ^ *data++];
    return c;
 }
 
-static void build_frame(unsigned char *f, unsigned char ctrl, unsigned char idx,
-   unsigned char p1, unsigned char p2, unsigned char p3, unsigned char p4, unsigned char p5)
+static void build_frame(uint8_t *f, uint8_t ctrl, uint8_t idx,
+   uint8_t p1, uint8_t p2, uint8_t p3, uint8_t p4, uint8_t p5)
 {
    f[0] = ctrl;
    f[1] = idx;
@@ -47,11 +47,11 @@ static void build_frame(unsigned char *f, unsigned char ctrl, unsigned char idx,
 /* --- Parse: CRC --- */
 static void test_parse_crc_error(void)
 {
-   unsigned char frame[8];
+   uint8_t frame[8];
    vttester_parsed_t parsed;
    build_frame(frame, 0x20, 0x00, 0, 0, 0, 0, 0);
    frame[7] ^= 0x01; /* corrupt CRC */
-   unsigned char cmd = vttester_parse_message(frame, &parsed);
+   uint8_t cmd = vttester_parse_message(frame, &parsed);
    TEST_ASSERT(cmd == VTTESTER_CMD_NONE);
    TEST_ASSERT(parsed.err_code == VTTESTER_ERR_CRC);
 }
@@ -59,11 +59,11 @@ static void test_parse_crc_error(void)
 /* --- Parse: invalid cmd (bit 5 clear) --- */
 static void test_parse_invalid_cmd_bit5(void)
 {
-   unsigned char frame[8];
+   uint8_t frame[8];
    vttester_parsed_t parsed;
    /* SET but bit 5 = 0 -> invalid */
    build_frame(frame, 0x00, 0x00, 0, 0, 0, 0, 0);
-   unsigned char cmd = vttester_parse_message(frame, &parsed);
+   uint8_t cmd = vttester_parse_message(frame, &parsed);
    TEST_ASSERT(cmd == VTTESTER_CMD_NONE);
    TEST_ASSERT(parsed.err_code == VTTESTER_ERR_INVALID_CMD);
 }
@@ -71,10 +71,10 @@ static void test_parse_invalid_cmd_bit5(void)
 /* --- Parse: MEAS --- */
 static void test_parse_meas(void)
 {
-   unsigned char frame[8];
+   uint8_t frame[8];
    vttester_parsed_t parsed;
    build_frame(frame, 0x60, 0x11, 0, 0, 0, 0, 0); /* MEAS, index 0x11 */
-   unsigned char cmd = vttester_parse_message(frame, &parsed);
+   uint8_t cmd = vttester_parse_message(frame, &parsed);
    TEST_ASSERT(cmd == VTTESTER_CMD_MEAS);
    TEST_ASSERT(parsed.index == 0x11);
 }
@@ -82,11 +82,11 @@ static void test_parse_meas(void)
 /* --- Parse: SET valid (heat 0..7, Ua/UG2 0..30, Ug1 P4*5<=240, tuh index 0..63) --- */
 static void test_parse_set_ok(void)
 {
-   unsigned char frame[8];
+   uint8_t frame[8];
    vttester_parsed_t parsed;
    /* SET: heat=6 (6.3V), P2=20 (200V), P3=15 (150V), P4=24 (ug1def=120), tuh_index=10 -> tuh_ticks=20 */
    build_frame(frame, 0x20, 0x00, 0x06, 20, 15, 24, 10);
-   unsigned char cmd = vttester_parse_message(frame, &parsed);
+   uint8_t cmd = vttester_parse_message(frame, &parsed);
    TEST_ASSERT(cmd == VTTESTER_CMD_SET);
    TEST_ASSERT(parsed.err_code == VTTESTER_ERR_OK);
    TEST_ASSERT(parsed.set.uhdef == 63);   /* heat_voltage[6] = 6.3V -> 63 in 0.1V (0=off,1=14,2=20,3=25,4=40,5=50,6=63,7=126) */
@@ -99,10 +99,10 @@ static void test_parse_set_ok(void)
 /* --- Parse: SET P1 out of range (heat index > 7) --- */
 static void test_parse_set_p1_oob(void)
 {
-   unsigned char frame[8];
+   uint8_t frame[8];
    vttester_parsed_t parsed;
    build_frame(frame, 0x20, 0x00, 0x08, 0, 0, 0, 0); /* heat idx 8 */
-   unsigned char cmd = vttester_parse_message(frame, &parsed);
+   uint8_t cmd = vttester_parse_message(frame, &parsed);
    TEST_ASSERT(cmd == VTTESTER_CMD_SET);
    TEST_ASSERT(parsed.err_code == VTTESTER_ERR_OUT_OF_RANGE);
    TEST_ASSERT(parsed.set.error_param == 1);
@@ -112,10 +112,10 @@ static void test_parse_set_p1_oob(void)
 /* --- Parse: SET P2 out of range (Ua > 300 V) --- */
 static void test_parse_set_p2_oob(void)
 {
-   unsigned char frame[8];
+   uint8_t frame[8];
    vttester_parsed_t parsed;
    build_frame(frame, 0x20, 0x00, 0, 31, 0, 0, 0); /* 31*10 = 310 */
-   unsigned char cmd = vttester_parse_message(frame, &parsed);
+   uint8_t cmd = vttester_parse_message(frame, &parsed);
    TEST_ASSERT(cmd == VTTESTER_CMD_SET);
    TEST_ASSERT(parsed.err_code == VTTESTER_ERR_OUT_OF_RANGE);
    TEST_ASSERT(parsed.set.error_param == 2);
@@ -125,10 +125,10 @@ static void test_parse_set_p2_oob(void)
 /* --- Parse: SET P3 out of range (Ug2 > 300 V) --- */
 static void test_parse_set_p3_oob(void)
 {
-   unsigned char frame[8];
+   uint8_t frame[8];
    vttester_parsed_t parsed;
    build_frame(frame, 0x20, 0x00, 0, 0, 31, 0, 0);
-   unsigned char cmd = vttester_parse_message(frame, &parsed);
+   uint8_t cmd = vttester_parse_message(frame, &parsed);
    TEST_ASSERT(cmd == VTTESTER_CMD_SET);
    TEST_ASSERT(parsed.err_code == VTTESTER_ERR_OUT_OF_RANGE);
    TEST_ASSERT(parsed.set.error_param == 3);
@@ -137,10 +137,10 @@ static void test_parse_set_p3_oob(void)
 /* --- Parse: SET P4 out of range (ug1def > 240) --- */
 static void test_parse_set_p4_oob(void)
 {
-   unsigned char frame[8];
+   uint8_t frame[8];
    vttester_parsed_t parsed;
    build_frame(frame, 0x20, 0x00, 0, 0, 0, 49, 0); /* 49*5 = 245 > 240 */
-   unsigned char cmd = vttester_parse_message(frame, &parsed);
+   uint8_t cmd = vttester_parse_message(frame, &parsed);
    TEST_ASSERT(cmd == VTTESTER_CMD_SET);
    TEST_ASSERT(parsed.err_code == VTTESTER_ERR_OUT_OF_RANGE);
    TEST_ASSERT(parsed.set.error_param == 4);
@@ -150,10 +150,10 @@ static void test_parse_set_p4_oob(void)
 /* --- Parse: SET param 5 (tuh index) out of range (> 63) --- */
 static void test_parse_set_tuh_index_oob(void)
 {
-   unsigned char frame[8];
+   uint8_t frame[8];
    vttester_parsed_t parsed;
    build_frame(frame, 0x20, 0x00, 0, 0, 0, 0, 64);
-   unsigned char cmd = vttester_parse_message(frame, &parsed);
+   uint8_t cmd = vttester_parse_message(frame, &parsed);
    TEST_ASSERT(cmd == VTTESTER_CMD_SET);
    TEST_ASSERT(parsed.err_code == VTTESTER_ERR_OUT_OF_RANGE);
    TEST_ASSERT(parsed.set.error_param == 5);
@@ -163,7 +163,7 @@ static void test_parse_set_tuh_index_oob(void)
 /* --- Parse: SET Ug1 direction (P4=0 -> ug1def=0, P4=48 -> ug1def=240) --- */
 static void test_parse_set_ug1_range(void)
 {
-   unsigned char frame[8];
+   uint8_t frame[8];
    vttester_parsed_t parsed;
    build_frame(frame, 0x20, 0x00, 0, 0, 0, 0, 0);
    (void)vttester_parse_message(frame, &parsed);
@@ -176,7 +176,7 @@ static void test_parse_set_ug1_range(void)
 /* --- send_response: OK vs OUT_OF_RANGE layout --- */
 static void test_send_response_ok(void)
 {
-   unsigned char buf[8];
+   uint8_t buf[8];
    vttester_send_response(buf, 0x11, VTTESTER_ERR_OK, 0, 0);
    TEST_ASSERT(buf[0] == 0x02);
    TEST_ASSERT(buf[1] == 0x11);
@@ -187,7 +187,7 @@ static void test_send_response_ok(void)
 
 static void test_send_response_out_of_range(void)
 {
-   unsigned char buf[8];
+   uint8_t buf[8];
    vttester_send_response(buf, 0x22, VTTESTER_ERR_OUT_OF_RANGE, 2, 310);
    TEST_ASSERT(buf[0] == 0x02);
    TEST_ASSERT(buf[1] == 0x22);
@@ -202,7 +202,7 @@ static void test_send_response_out_of_range(void)
 /* --- send_measurement: frame layout and CRC --- */
 static void test_send_measurement(void)
 {
-   unsigned char buf[8];
+   uint8_t buf[8];
    vttester_send_measurement(buf, 0x11, 100, 500, 0, 200, 999, 0xF0);
    TEST_ASSERT(buf[0] == 0x02);
    TEST_ASSERT(buf[1] == 0x11);

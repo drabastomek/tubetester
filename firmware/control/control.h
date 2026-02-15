@@ -7,6 +7,8 @@
 #ifndef VTTESTER_CONTROL_H
 #define VTTESTER_CONTROL_H
 
-void control_update(unsigned char *ascii);
+#include <stdint.h>
+
+void control_update(uint8_t *ascii);
 
 #endif /* VTTESTER_CONTROL_H */
