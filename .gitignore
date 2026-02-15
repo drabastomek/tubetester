@@ -14,3 +14,4 @@ bin/
 
 old_code/
 __pycache__/
+pytest.ini
