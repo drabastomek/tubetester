@@ -16,8 +16,8 @@
 #endif
 
 /* From main */
-extern unsigned char buf[64], adr, typ, takt, dusk0, err;
-extern unsigned int start;
+extern unsigned char buf[64], adr, takt, dusk0, err;
+extern unsigned int typ, start;
 
 void cmd2lcd(char rs, char bajt)
 {
@@ -167,7 +167,7 @@ void display_build_row2(const unsigned char *buf, unsigned char adr, unsigned ch
    out[20] = '\0';
 }
 
-void display_build_row3(unsigned char typ, unsigned int start, unsigned char dusk0, const unsigned char *buf, unsigned char adr, char *out)
+void display_build_row3(unsigned int typ, unsigned int start, unsigned char dusk0, const unsigned char *buf, unsigned char adr, char *out)
 {
    unsigned char ascii[5];
    unsigned char i;

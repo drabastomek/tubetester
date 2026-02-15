@@ -14,9 +14,9 @@
 #endif
 #endif
 
-extern unsigned char buf[64], adr, typ, nowa, nodus, dusk0, zapisz, czytaj;
+extern unsigned char buf[64], adr, nowa, nodus, dusk0, zapisz, czytaj;
 extern unsigned char range, rangelcd, rangedef, txen, bufin[10];
-extern unsigned int start, tuh, vref;
+extern unsigned int typ, start, tuh, vref;
 extern unsigned int uhset, ihset, ug1set, uaset, ug2set;
 extern unsigned int muhadc, mihadc, mug1adc, muaadc, miaadc, mug2adc, mig2adc;
 extern unsigned int ug1zer, ug1ref, uh, ih, ua, ia, ug2, ig2, ug1;

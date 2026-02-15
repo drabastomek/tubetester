@@ -15,7 +15,7 @@ void display_refresh(void);
 void display_build_row0(const unsigned char *buf, unsigned char adr, unsigned int start, char *out);
 void display_build_row1(const unsigned char *buf, unsigned char adr, char *out);
 void display_build_row2(const unsigned char *buf, unsigned char adr, unsigned char err, char *out);
-void display_build_row3(unsigned char typ, unsigned int start, unsigned char dusk0, const unsigned char *buf, unsigned char adr, char *out);
+void display_build_row3(unsigned int typ, unsigned int start, unsigned char dusk0, const unsigned char *buf, unsigned char adr, char *out);
 
 void cmd2lcd(char rs, char bajt);
 void gotoxy(char x, char y);

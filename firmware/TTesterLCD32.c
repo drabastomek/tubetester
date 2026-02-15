@@ -19,7 +19,9 @@
 #include "display/display.h"
 #include "control/control.h"
 
+#if defined(ICCAVR)
 #pragma data:data
+#endif
 
 unsigned char
    d, i,
@@ -734,7 +736,7 @@ ISR(TIMER2_COMP_vect)
 //      Program glowny
 //*************************************************************
 
-void main(void)
+int main(void)
 {
 //***** Konfiguracja portow ***********************************
                             //   7   6   5   4   3   2   1   0
@@ -916,5 +918,6 @@ void main(void)
 //***** Menu, katalog, edycja, obliczenia (wypelnianie buf[]) *****
       control_update( ascii );
    }
-}
 
+   return 0;
+}

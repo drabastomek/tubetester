@@ -169,6 +169,7 @@ void vttester_send_measurement(unsigned char *buf, unsigned char index,
     unsigned int ig2lcd, unsigned int slcd, unsigned char alarm_bits)
 {
     unsigned int r;
+    (void)rangelcd;
 
     buf[0] = 0x02;
     buf[1] = index;

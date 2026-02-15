@@ -7,7 +7,8 @@
 #include "config/config.h"
 #include <string.h>
 
-extern unsigned char buf[64], adr, typ, dusk0, zapisz, czytaj;
+extern unsigned char buf[64], adr, dusk0, zapisz, czytaj;
+extern unsigned int typ;
 extern unsigned int start, vref, ug1lcd, uhlcd, ihlcd, lastyp;
 extern unsigned int muhadc, mihadc, mug1adc, muaadc, miaadc, mug2adc, mig2adc;
 extern unsigned int range;

@@ -6,7 +6,8 @@
 #include <string.h>
 
 /* Control externs */
-unsigned char buf[64], adr, typ, nowa, nodus, dusk0, zapisz, czytaj;
+unsigned char buf[64], adr, nowa, nodus, dusk0, zapisz, czytaj;
+unsigned int typ;
 unsigned char range, rangelcd, rangedef, txen, bufin[10];
 unsigned int start, tuh, vref;
 unsigned int uhset, ihset, ug1set, uaset, ug2set;
