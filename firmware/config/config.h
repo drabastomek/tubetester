@@ -7,7 +7,7 @@
 #define VTTESTER_CONFIG_H
 
 #if defined(ICCAVR)
-/* ImageCraft ICCAVR: no avr-libc; EEPROM_READ/WRITE as memcpy to/from RAM (poptyp/lampeep in RAM in config.c) */
+/* Unify the calls to EEPROM_READ across iccavr and avr-gcc */
 #include <string.h>
 #define EEPROM_READ(addr, var)   memcpy((void*)&(var), (const void*)(addr), sizeof(var))
 #define EEPROM_WRITE(addr, val)  memcpy((void*)(addr), (const void*)&(val), sizeof(val))
@@ -59,6 +59,7 @@
 #define CLKUG1RST PORTB &= ~BIT(2)
 
 /* --- Timing / UART --- */
+/* KWARC = crystal/clock Hz. RATE = UBRR for 9600 baud: F_CPU/(16*9600)-1. At 16 MHz: 103; at 8 MHz: 51. See docs/8MHZ_INTERNAL_CLOCK.md */
 #define KWARC   16000000
 #define RATE    103
 #define MS1     250
