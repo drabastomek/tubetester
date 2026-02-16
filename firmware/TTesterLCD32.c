@@ -25,26 +25,26 @@
 
 uint8_t
    d, i,
-   txen,
-   *cwart, cwartmin, cwartmax,
-   adr, adrmin, adrmax,
-   nowa,
-   stop,
-   dziel,
-   nodus, dusk0,
-   zapisz, czytaj,
-   range, rangelcd, rangedef,
+   tx_send_flag,
+   *edit_byte_ptr, edit_byte_min, edit_byte_max,
+   edit_field_index, edit_field_min, edit_field_max,
+   encoder_new_turn_flag,
+   measurement_stop_request,
+   sync_tick_divider,
+   debounce_encoder_ticks_stable_cnt, debounce_set_button_hold_ticks,
+   save_eeprom_flag, read_eeprom_flag,
+   ia_range_hi, ia_range_lcd, ia_range_default,
    ascii[5],
-   kanal,
-   takt,
-   overih, overia, overig2, err, errcode,
-   probki,
-   pwm,
-   anode,
-   bufin[10],
-   buf[64],
-   rx_proto_buf[VTTESTER_FRAME_LEN],
-   tx_proto_buf[VTTESTER_FRAME_LEN],
+   adc_channel_index,
+   display_blink_phase,
+   overcurrent_heater_count, overcurrent_anode_count, overcurrent_screen_count, alarm_error_bits, alarm_error_code,
+   adc_phase_sample_count,
+   heater_pwm_duty,
+   anode_system_select,
+   legacy_rx_buffer[10],
+   lcd_line_buffer[64],
+   proto_rx_frame[VTTESTER_FRAME_LEN],
+   proto_tx_frame[VTTESTER_FRAME_LEN],
    remote_meas_trigger,
    remote_meas_pending,
    remote_meas_ready,
@@ -52,39 +52,39 @@ uint8_t
 
 /* ISR ↔ main shared: must be volatile so optimizer does not assume they never change */
 volatile uint8_t
-   busy,       /* USART_TXC clears; main waits in char2rs */
-   sync,       /* TIMER2_COMP sets; main checks in loop */
-   zwloka,     /* TIMER2_COMP decrements; delay() spins */
-   irx, tout, crc,
-   rx_proto_pos,
-   rx_proto_ready;
+   uart_tx_busy,       /* USART_TXC clears; main waits in char2rs */
+   main_loop_sync_flag,       /* TIMER2_COMP sets; main checks in loop */
+   delay_ticks_remaining,     /* TIMER2_COMP decrements; delay() spins */
+   legacy_rx_index, legacy_rx_timeout_ticks, legacy_crc,
+   proto_rx_pos,
+   proto_frame_ready;
 
 uint16_t
-   *wart, wartmin, wartmax,
-   start, tuh,
-   vref,
-   adcih, adcia, adcig2,
-   uhset,  ihset,  ug1set,  uaset,  iaset,  ug2set,   ig2set,
-   suhadc, sihadc, sug1adc, suaadc, siaadc, sug2adc, sig2adc,
-   muhadc, mihadc, mug1adc, muaadc, miaadc, mug2adc, mig2adc,
-   ug1zer, ug1ref,
-   uh, ih,
-   ua, ual, uar,
-   ia, ial, iar,
-   ug2, ig2,
-   ug1, ugl, ugr,
-   s, r, k,
-   typ, lastyp,
-   uhlcd, ihlcd, ug1lcd, ualcd, ialcd, ug2lcd, ig2lcd, slcd, rlcd, klcd,
-   srezadc, mrezadc,
-   bufinta, bufintg2;
+   *edit_value_ptr, edit_value_min, edit_value_max,
+   sequencer_phase_ticks, heating_time_ticks,
+   adc_vref_scaled,
+   adc_raw_ih, adc_raw_ia, adc_raw_ig2,
+   setpoint_uh,  setpoint_ih,  setpoint_ug1,  setpoint_ua,  setpoint_ia,  setpoint_ug2,   setpoint_ig2,
+   adc_sum_uh, adc_sum_ih, adc_sum_ug1, adc_sum_ua, adc_sum_ia, adc_sum_ug2, adc_sum_ig2,
+   adc_mean_uh, adc_mean_ih, adc_mean_ug1, adc_mean_ua, adc_mean_ia, adc_mean_ug2, adc_mean_ig2,
+   ug1_dac_zero, ug1_dac_ref,
+   meas_uh, meas_ih,
+   meas_ua, meas_ua_left, meas_ua_right,
+   meas_ia, meas_ia_left, meas_ia_right,
+   meas_ug2, meas_ig2,
+   meas_ug1, meas_ug1_left, meas_ug1_right,
+   slope_s, resistance_r, amplification_k,
+   tube_type_index, tube_type_index_prev,
+   lcd_uh, lcd_ih, lcd_ug1, lcd_ua, lcd_ia, lcd_ug2, lcd_ig2, lcd_s, lcd_r, lcd_k,
+   adc_sum_rez, adc_mean_rez,
+   legacy_decoded_ua, legacy_decoded_ug2;
 
 uint32_t
-   lint, tint, licz, temp;
+   calc_temp_a, calc_temp_b, ug1_calc_accum, ug1_calc_temp;
 
 katalog
-   lamprem,
-   lamptem;
+   catalog_remote,
+   catalog_current;
 
 //*************************************************************************
 //                 O B S L U G A   P R Z E R W A N
@@ -97,193 +97,193 @@ void ext_int1(void)
 ISR(INT1_vect)
 #endif
 {
-   if( start > (TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2) )
+   if( sequencer_phase_ticks > (TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2) )
    {
-      if( nodus == DMIN )
+      if( debounce_encoder_ticks_stable_cnt == DMIN )
       {
-         start = (TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2);  // wylaczanie kreciolkiem
-         stop = 0;
+         sequencer_phase_ticks = (TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2);  // wylaczanie kreciolkiem
+         measurement_stop_request = 0;
       }
    }
    else
    {
-      if( start == (FUH+2) )
+      if( sequencer_phase_ticks == (FUH+2) )
       {
-         if( dusk0 == DMAX )
+         if( debounce_set_button_hold_ticks == DMAX )
          {
             if( RIGHT )
             {
-               if( (nowa == 1) && ((lamptem.nazwa[7] == '1') || (lamptem.nazwa[7] == 28)) ) { typ++; nowa = 0; }
+               if( (encoder_new_turn_flag == 1) && ((catalog_current.tube_name[7] == '1') || (catalog_current.tube_name[7] == 28)) ) { tube_type_index++; encoder_new_turn_flag = 0; }
             }
             else
             {
-               if( (nowa == 1) && ((lamptem.nazwa[7] == '2') || (lamptem.nazwa[7] == 29)) ) { typ--; nowa = 0; }
+               if( (encoder_new_turn_flag == 1) && ((catalog_current.tube_name[7] == '2') || (catalog_current.tube_name[7] == 29)) ) { tube_type_index--; encoder_new_turn_flag = 0; }
             }
             zersrk();
          }
-         if( nodus == DMIN )
+         if( debounce_encoder_ticks_stable_cnt == DMIN )
          {
-            start = (FUH+1);
+            sequencer_phase_ticks = (FUH+1);
          }
       }
       else
       {
-         if( start == 0 )
+         if( sequencer_phase_ticks == 0 )
          {
-            if( adr == 0 )                          // edycja numeru
+            if( edit_field_index == 0 )                          // edycja numeru
             {
-               wartmin = 0;
-               wartmax = (FLAMP+ELAMP-1); // PWRSUP+REMOTE+FLASH+EEPROM
-               wart = &typ;
+               edit_value_min = 0;
+               edit_value_max = (FLAMP+ELAMP-1); // PWRSUP+REMOTE+FLASH+EEPROM
+               edit_value_ptr = &tube_type_index;
             }
-            if( (adr > 0) && (adr < 7) )                 // edycja nazwy
+            if( (edit_field_index > 0) && (edit_field_index < 7) )                 // edycja nazwy
             {
-               cwartmin = 0;
-               cwartmax = 36;
-               cwart = &lamptem.nazwa[adr-1];
+               edit_byte_min = 0;
+               edit_byte_max = 36;
+               edit_byte_ptr = &catalog_current.tube_name[edit_field_index-1];
             }
-            if( adr == 7 )              // zmiana nr podstawki zarzenia
+            if( edit_field_index == 7 )              // zmiana nr podstawki zarzenia
             {
-               cwartmin = 0;
-               cwartmax = 9;
-               cwart = &lamptem.nazwa[6];
+               edit_byte_min = 0;
+               edit_byte_max = 9;
+               edit_byte_ptr = &catalog_current.tube_name[6];
             }
-            if( adr == 8 )                // zmiana nr systemu elektrod
+            if( edit_field_index == 8 )                // zmiana nr systemu elektrod
             {
-               if( typ == 0 )
+               if( tube_type_index == 0 )
                {
-                  cwartmin = 28;
+                  edit_byte_min = 28;
                }
                else
                {
-                  cwartmin = 27;
+                  edit_byte_min = 27;
                }
-               cwartmax = 29;
-               cwart = &lamptem.nazwa[7];
+               edit_byte_max = 29;
+               edit_byte_ptr = &catalog_current.tube_name[7];
             }
-            if( adr == 9 )                 // ustawianie czasu zarzenia
+            if( edit_field_index == 9 )                 // ustawianie czasu zarzenia
             {
-               cwartmin = 28;
-               cwartmax = 36;
-               cwart = &lamptem.nazwa[8];
+               edit_byte_min = 28;
+               edit_byte_max = 36;
+               edit_byte_ptr = &catalog_current.tube_name[8];
             }
-            if( adr == 10 )                         // ustawianie Ug1
+            if( edit_field_index == 10 )                         // ustawianie Ug1
             {
-               cwartmin = (typ == 0)? 0: 5;          // 0.5 lub 0
-               cwartmax = (typ == 0)? 240: 235;      // -23.5 lub -24.0V
-               cwart = &lamptem.ug1def;
+               edit_byte_min = (tube_type_index == 0)? 0: 5;          // 0.5 lub 0
+               edit_byte_max = (tube_type_index == 0)? 240: 235;      // -23.5 lub -24.0V
+               edit_byte_ptr = &catalog_current.voltage_g1_set;
             }
-            if( adr == 11 )                         // ustawianie Uh
+            if( edit_field_index == 11 )                         // ustawianie Uh
             {
-               cwartmin = 0;
-               cwartmax = 200;                           // 0..20.0V
-               cwart = &lamptem.uhdef;
+               edit_byte_min = 0;
+               edit_byte_max = 200;                           // 0..20.0V
+               edit_byte_ptr = &catalog_current.voltage_heater_set;
             }
-            if( adr == 12 )                         // ustawianie Ih
+            if( edit_field_index == 12 )                         // ustawianie Ih
             {
-               cwartmin = 0;
-               cwartmax = 250;                     // 0..2.50A
-               cwart = &lamptem.ihdef;
+               edit_byte_min = 0;
+               edit_byte_max = 250;                     // 0..2.50A
+               edit_byte_ptr = &catalog_current.current_heater_set;
             }
-            if( adr == 13 )                         // ustawianie Ua
+            if( edit_field_index == 13 )                         // ustawianie Ua
             {
-               wartmin = (typ == 0)? 0: 10;
-               wartmax = (typ == 0)? 300: 290;     // 0..300V
-               wart = &lamptem.uadef;
+               edit_value_min = (tube_type_index == 0)? 0: 10;
+               edit_value_max = (tube_type_index == 0)? 300: 290;     // 0..300V
+               edit_value_ptr = &catalog_current.voltage_anode_set;
             }
-            if( adr == 14 )                         // ustawianie Ia
+            if( edit_field_index == 14 )                         // ustawianie Ia
             {
-               wartmin = 0;
-               wartmax = 2000;                      // 0..200.0mA
-               wart = &lamptem.iadef;
+               edit_value_min = 0;
+               edit_value_max = 2000;                      // 0..200.0mA
+               edit_value_ptr = &catalog_current.current_anode_ref;
             }
-            if( adr == 15 )                        // ustawianie Ug2
+            if( edit_field_index == 15 )                        // ustawianie Ug2
             {
-               wartmin = 0;
-               wartmax = 300;                       // 0..300V
-               wart = &lamptem.ug2def;
+               edit_value_min = 0;
+               edit_value_max = 300;                       // 0..300V
+               edit_value_ptr = &catalog_current.voltage_screen_set;
             }
-            if( adr == 16 )                         // ustawianie Ig2
+            if( edit_field_index == 16 )                         // ustawianie Ig2
             {
-               wartmin = 0;
-               wartmax = 4000;                      // 0..40.00mA
-               wart = &lamptem.ig2def;
+               edit_value_min = 0;
+               edit_value_max = 4000;                      // 0..40.00mA
+               edit_value_ptr = &catalog_current.current_screen_ref;
             }
-            if( adr == 17 )                        // ustawianie S
+            if( edit_field_index == 17 )                        // ustawianie S
             {
-               wartmin = 0;
-               wartmax = 999;                         // 99.9
-               wart = &lamptem.sdef;
+               edit_value_min = 0;
+               edit_value_max = 999;                         // 99.9
+               edit_value_ptr = &catalog_current.slope_ref;
             }
-            if( adr == 18 )                        // ustawianie R
+            if( edit_field_index == 18 )                        // ustawianie R
             {
-               wartmin = 0;
-               wartmax = 999;                      // 99.9
-               wart = &lamptem.rdef;
+               edit_value_min = 0;
+               edit_value_max = 999;                      // 99.9
+               edit_value_ptr = &catalog_current.r_anode_ref;
             }
-            if( adr == 19 )                        // ustawianie K
+            if( edit_field_index == 19 )                        // ustawianie K
             {
-               wartmin = 0;
-               wartmax = 9999;                       // 9999
-               wart = &lamptem.kdef;
+               edit_value_min = 0;
+               edit_value_max = 9999;                       // 9999
+               edit_value_ptr = &catalog_current.k_amplification_ref;
             }
 
             if( RIGHT )
             {
-               if( (adr > 0) && (adr < 13) )
+               if( (edit_field_index > 0) && (edit_field_index < 13) )
                {
-                  if( dusk0 == DMAX )
+                  if( debounce_set_button_hold_ticks == DMAX )
                   {
-                     if( (*cwart) < cwartmax ) { (*cwart)++; }
+                     if( (*edit_byte_ptr) < edit_byte_max ) { (*edit_byte_ptr)++; }
                   }
                }
                else
                {
-                  if( dusk0 == DMAX )
+                  if( debounce_set_button_hold_ticks == DMAX )
                   {
-                     if( (*wart) < wartmax ) { (*wart)++; } else { if( adr == 0 ) { (*wart) = 0; } }
+                     if( (*edit_value_ptr) < edit_value_max ) { (*edit_value_ptr)++; } else { if( edit_field_index == 0 ) { (*edit_value_ptr) = 0; } }
                   }
                }
-               if( nodus == DMIN )
+               if( debounce_encoder_ticks_stable_cnt == DMIN )
                {
-                  if( typ == 0 ) // PWRSUP
+                  if( tube_type_index == 0 ) // PWRSUP
                   {
-                     if( adr < 15 ) { adr++; } // nie dojezdzaj do Ig2
-                     if( adr == 14 ) { adr = 15; } // przeskocz Ia
-                     if( adr == 9 ) { adr = 10; } // przeskocz czas zarzenia
-                     if( adr == 1 ) { adr = 8; } // 8 przeskocz nazwe i podstawke
+                     if( edit_field_index < 15 ) { edit_field_index++; } // nie dojezdzaj do Ig2
+                     if( edit_field_index == 14 ) { edit_field_index = 15; } // przeskocz Ia
+                     if( edit_field_index == 9 ) { edit_field_index = 10; } // przeskocz czas zarzenia
+                     if( edit_field_index == 1 ) { edit_field_index = 8; } // 8 przeskocz nazwe i podstawke
                   }
-                  if( typ >= FLAMP ) // katalog zmienny
+                  if( tube_type_index >= FLAMP ) // katalog zmienny
                   {
-                     if( adr < 19 ) { adr++; }
+                     if( edit_field_index < 19 ) { edit_field_index++; }
                   }
                }
             }
             else
             {
-               if( (adr > 0) && (adr < 13) )
+               if( (edit_field_index > 0) && (edit_field_index < 13) )
                {
-                  if( dusk0 == DMAX )
+                  if( debounce_set_button_hold_ticks == DMAX )
                   {
-                     if( (*cwart) > cwartmin ) { (*cwart)--; }
+                     if( (*edit_byte_ptr) > edit_byte_min ) { (*edit_byte_ptr)--; }
                   }
                }
                else
                {
-                  if( dusk0 == DMAX )
+                  if( debounce_set_button_hold_ticks == DMAX )
                   {
-                     if( (*wart) > wartmin ) { (*wart)--; } else { if( adr == 0 ) { (*wart) = (FLAMP+ELAMP-1); } }
+                     if( (*edit_value_ptr) > edit_value_min ) { (*edit_value_ptr)--; } else { if( edit_field_index == 0 ) { (*edit_value_ptr) = (FLAMP+ELAMP-1); } }
                   }
                }
-               if( (nodus == DMIN) && (adr > 0) )
+               if( (debounce_encoder_ticks_stable_cnt == DMIN) && (edit_field_index > 0) )
                {
-                  if( typ >= FLAMP ) { adr--; }
-                  if( typ == 0 )
+                  if( tube_type_index >= FLAMP ) { edit_field_index--; }
+                  if( tube_type_index == 0 )
                   {
-                     if( adr > 0 ) { adr--; }
-                     if( adr == 7 ) { adr = 0; stop = 0; start = (TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2); } // przeskocz nazwe / wylaczenie
-                     if( adr == 9 ) { adr = 8; } // przeskocz nazwe i podstawke
-                     if( adr == 14 ) { adr = 13; } // pomin Ia
+                     if( edit_field_index > 0 ) { edit_field_index--; }
+                     if( edit_field_index == 7 ) { edit_field_index = 0; measurement_stop_request = 0; sequencer_phase_ticks = (TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2); } // przeskocz nazwe / wylaczenie
+                     if( edit_field_index == 9 ) { edit_field_index = 8; } // przeskocz nazwe i podstawke
+                     if( edit_field_index == 14 ) { edit_field_index = 13; } // pomin Ia
                   }
                }
             }
@@ -299,232 +299,232 @@ void adc(void)
 ISR(ADC_vect)
 #endif
 {
-   switch( kanal )
+   switch( adc_channel_index )
    {
       case 0:
       {
-         srezadc += ADC;
-         kanal = 1;
+         adc_sum_rez += ADC;
+         adc_channel_index = 1;
          CLKUG1SET;
          ADMUX = ADRIH;
          break;
       }
       case 1:
       {
-         kanal = 2;
-         if( ADC >= ug1set ) { CLKUG1RST; }
+         adc_channel_index = 2;
+         if( ADC >= setpoint_ug1 ) { CLKUG1RST; }
          ADMUX = ADRUG1;
          break;
       }
       case 2:
       {
-         adcih = ADC;
-         sihadc += adcih;
-         kanal = 3;
+         adc_raw_ih = ADC;
+         adc_sum_ih += adc_raw_ih;
+         adc_channel_index = 3;
          CLKUG1SET;
          ADMUX = ADRUH;
 //***** Zabezpieczenie nadpradowe Ih **************************
-         if( adcih > 400 )
+         if( adc_raw_ih > 400 )
          {
-            if( overih > 0 )
+            if( overcurrent_heater_count > 0 )
             {
-               overih--;
+               overcurrent_heater_count--;
             }
             else
             {
-               uhset = ihset = 0;
-               err |= OVERIH;
+               setpoint_uh = setpoint_ih = 0;
+               alarm_error_bits |= OVERIH;
             }
          }
          else
          {
-            overih = OVERSAMP;
+            overcurrent_heater_count = OVERSAMP;
          }
          break;
       }
       case 3:
       {
-         kanal = 4;
-         if( ADC >= ug1set ) { CLKUG1RST; }
+         adc_channel_index = 4;
+         if( ADC >= setpoint_ug1 ) { CLKUG1RST; }
          ADMUX = ADRUG1;
          break;
       }
       case 4:
       {
-         suhadc += ADC;
-         kanal = 5;
+         adc_sum_uh += ADC;
+         adc_channel_index = 5;
          CLKUG1SET;
          ADMUX = ADRUA;
          break;
       }
       case 5:
       {
-         kanal = 6;
-         if( ADC >= ug1set ) { CLKUG1RST; }
+         adc_channel_index = 6;
+         if( ADC >= setpoint_ug1 ) { CLKUG1RST; }
          ADMUX = ADRUG1;
          break;
       }
       case 6:
       {
-         suaadc += ADC;
-         kanal = 7;
+         adc_sum_ua += ADC;
+         adc_channel_index = 7;
          CLKUG1SET;
          ADMUX = ADRIA;
          break;
       }
       case 7:
       {
-         kanal = 8;
-         if( ADC >= ug1set ) { CLKUG1RST; }
+         adc_channel_index = 8;
+         if( ADC >= setpoint_ug1 ) { CLKUG1RST; }
          ADMUX = ADRUG1;
          break;
       }
       case 8:
       {
-         adcia = ADC;
-         siaadc += adcia;
-         kanal = 9;
+         adc_raw_ia = ADC;
+         adc_sum_ia += adc_raw_ia;
+         adc_channel_index = 9;
          CLKUG1SET;
          ADMUX = ADRUG2;
 //***** Zabezpieczenie nadpradowe Ia ***************************
-         if( (range != 0) && (adcia >= 1020) )
+         if( (ia_range_hi != 0) && (adc_raw_ia >= 1020) )
          {
-            if( overia > 0 )
+            if( overcurrent_anode_count > 0 )
             {
-               overia--;
+               overcurrent_anode_count--;
             }
             else
             {
-               uaset = ug2set = 0;
+               setpoint_ua = setpoint_ug2 = 0;
                PWMUA = PWMUG2 = 0;;
-               err |= OVERIA;
+               alarm_error_bits |= OVERIA;
             }
          }
          else
          {
-            overia = OVERSAMP;
+            overcurrent_anode_count = OVERSAMP;
          }
 //***** Wystawienie Ua ****************************************
-         if( PWMUA < uaset ) PWMUA++;
-         if( PWMUA > uaset ) PWMUA--;
+         if( PWMUA < setpoint_ua ) PWMUA++;
+         if( PWMUA > setpoint_ua ) PWMUA--;
 //***** Ustawianie wysokiego zakresu pomiarowego Ia ***********
-         if( (range == 0) && (adcia > 950) )
+         if( (ia_range_hi == 0) && (adc_raw_ia > 950) )
          {
-            range = 1;
+            ia_range_hi = 1;
             SET200;
          }
 //***** Ustawianie niskiego zakresu pomiarowego Ia ************
-         if( ((err & OVERIA) == 0) && (range != 0) && (adcia < 85) )
+         if( ((alarm_error_bits & OVERIA) == 0) && (ia_range_hi != 0) && (adc_raw_ia < 85) )
          {
-            range = 0;
+            ia_range_hi = 0;
             RST200;
          }
          break;
       }
       case 9:
       {
-         kanal = 10;
-         if( ADC >= ug1set ) { CLKUG1RST; }
+         adc_channel_index = 10;
+         if( ADC >= setpoint_ug1 ) { CLKUG1RST; }
          ADMUX = ADRUG1;
          break;
       }
       case 10:
       {
-         sug2adc += ADC;
-         kanal = 11;
+         adc_sum_ug2 += ADC;
+         adc_channel_index = 11;
          CLKUG1SET;
          ADMUX = ADRIG2;
          break;
       }
       case 11:
       {
-         kanal = 12;
-         if( ADC >= ug1set ) { CLKUG1RST; }
+         adc_channel_index = 12;
+         if( ADC >= setpoint_ug1 ) { CLKUG1RST; }
          ADMUX = ADRUG1;
          break;
       }
       case 12:
       {
-         adcig2 = ADC;
-         sig2adc += adcig2;
-         kanal = 13;
+         adc_raw_ig2 = ADC;
+         adc_sum_ig2 += adc_raw_ig2;
+         adc_channel_index = 13;
          CLKUG1SET;
          ADMUX = ADRREZ;
 //***** Zabezpieczenie nadpradowe Ig2 **************************
-         if( adcig2 >= 1020 )
+         if( adc_raw_ig2 >= 1020 )
          {
-            if( overig2 > 0 )
+            if( overcurrent_screen_count > 0 )
             {
-               overig2--;
+               overcurrent_screen_count--;
             }
             else
             {
-               ug2set = 0;
+               setpoint_ug2 = 0;
                PWMUG2 = 0;
-               err |= OVERIG;
+               alarm_error_bits |= OVERIG;
             }
          }
          else
          {
-            overig2 = OVERSAMP;
+            overcurrent_screen_count = OVERSAMP;
          }
 //***** Wystawienie Ug2 ***************************************
-         if( PWMUG2 < ug2set ) PWMUG2++;
-         if( PWMUG2 > ug2set ) PWMUG2--;
+         if( PWMUG2 < setpoint_ug2 ) PWMUG2++;
+         if( PWMUG2 > setpoint_ug2 ) PWMUG2--;
          break;
       }
       case 13:
       {
-         sug1adc += ADC;
-         kanal = 0;
-         if( ADC >= ug1set ) { CLKUG1RST; }
+         adc_sum_ug1 += ADC;
+         adc_channel_index = 0;
+         if( ADC >= setpoint_ug1 ) { CLKUG1RST; }
          ADMUX = ADRUG1;
-         if( probki == LPROB )
+         if( adc_phase_sample_count == LPROB )
          {
-            mrezadc = srezadc;
-            mihadc = sihadc;
-            muhadc = suhadc;
-            muaadc = suaadc;
-            miaadc = siaadc;
-            mug2adc = sug2adc;
-            mig2adc = sig2adc;
-            mug1adc = sug1adc;
-            srezadc = sihadc = suhadc = suaadc = siaadc = sug2adc = sig2adc = sug1adc = 0;
-            probki = 0;
+            adc_mean_rez = adc_sum_rez;
+            adc_mean_ih = adc_sum_ih;
+            adc_mean_uh = adc_sum_uh;
+            adc_mean_ua = adc_sum_ua;
+            adc_mean_ia = adc_sum_ia;
+            adc_mean_ug2 = adc_sum_ug2;
+            adc_mean_ig2 = adc_sum_ig2;
+            adc_mean_ug1 = adc_sum_ug1;
+            adc_sum_rez = adc_sum_ih = adc_sum_uh = adc_sum_ua = adc_sum_ia = adc_sum_ug2 = adc_sum_ig2 = adc_sum_ug1 = 0;
+            adc_phase_sample_count = 0;
 //***** Szybkie wylaczenie Uh *********************************
-            if( (uhset == 0) && (ihset == 0) )
-               pwm = 0;
+            if( (setpoint_uh == 0) && (setpoint_ih == 0) )
+               heater_pwm_duty = 0;
             else
             {
                TCCR0 |= BIT(COM01);               // dolacz OC0
 //***** Stabilizacja Uh ***************************************
-               if( uhset > 0 )
+               if( setpoint_uh > 0 )
                {
-                  lint = muhadc;
-                  lint *= vref;
-                  lint >>= 14;        //  /= 16384;                // 0..200
-                  tint = mihadc;   // poprawka na spadek napiecia na boczniku
-                  tint *= vref;
-                  tint >>= 16;        //  /= 65536;
-                  if( lint > tint ) { lint -= tint; } else { lint = 0; }
-                  lint /= 10;
-                  if( (uhset > (uint16_t)lint) && (pwm < 255) ) { pwm++; }
-                  if( (uhset < (uint16_t)lint) && (pwm >   0) ) { pwm--; }
+                  calc_temp_a = adc_mean_uh;
+                  calc_temp_a *= adc_vref_scaled;
+                  calc_temp_a >>= 14;        //  /= 16384;                // 0..200
+                  calc_temp_b = adc_mean_ih;   // poprawka na spadek napiecia na boczniku
+                  calc_temp_b *= adc_vref_scaled;
+                  calc_temp_b >>= 16;        //  /= 65536;
+                  if( calc_temp_a > calc_temp_b ) { calc_temp_a -= calc_temp_b; } else { calc_temp_a = 0; }
+                  calc_temp_a /= 10;
+                  if( (setpoint_uh > (uint16_t)calc_temp_a) && (heater_pwm_duty < 255) ) { heater_pwm_duty++; }
+                  if( (setpoint_uh < (uint16_t)calc_temp_a) && (heater_pwm_duty >   0) ) { heater_pwm_duty--; }
                }
 //***** Stabilizacja Ih ***************************************
-               if( ihset > 0 )
+               if( setpoint_ih > 0 )
                {
-                  lint = mihadc;
-                  lint *= vref;
-                  lint >>= 15;    //   /= 32768;
-                  if( (ihset > (uint16_t)lint) )
+                  calc_temp_a = adc_mean_ih;
+                  calc_temp_a *= adc_vref_scaled;
+                  calc_temp_a >>= 15;    //   /= 32768;
+                  if( (setpoint_ih > (uint16_t)calc_temp_a) )
                   {
-                     if( (pwm < 8) || ((mihadc > 32) && (pwm < 255)) ) { pwm++; } // Uh<0.5V lub Ih>5mA
+                     if( (heater_pwm_duty < 8) || ((adc_mean_ih > 32) && (heater_pwm_duty < 255)) ) { heater_pwm_duty++; } // Uh<0.5V lub Ih>5mA
                   }
-                  if( (ihset < (uint16_t)lint) && (pwm >   0) ) { pwm--; }
+                  if( (setpoint_ih < (uint16_t)calc_temp_a) && (heater_pwm_duty >   0) ) { heater_pwm_duty--; }
                }
             }
-            if( pwm == 0 )
+            if( heater_pwm_duty == 0 )
             {
                TCCR0 &= ~BIT(COM01);                        // odlacz OC0
             }
@@ -532,14 +532,14 @@ ISR(ADC_vect)
             {
                TCCR0 |= BIT(COM01);                          // dolacz OC0
             }
-            PWMUH = pwm;
+            PWMUH = heater_pwm_duty;
 //***** Ustawianie/kasowanie znacznika przegrzania ************
-            if( mrezadc > HITEMP ) err |= OVERTE;
-            if( mrezadc < LOTEMP ) err &= ~OVERTE;
+            if( adc_mean_rez > HITEMP ) alarm_error_bits |= OVERTE;
+            if( adc_mean_rez < LOTEMP ) alarm_error_bits &= ~OVERTE;
          }
          else
          {
-            probki++;
+            adc_phase_sample_count++;
          }
          break;
       }
@@ -554,7 +554,7 @@ void usart_txc(void)
 ISR(USART_TXC_vect)
 #endif
 {
-   busy = 0;
+   uart_tx_busy = 0;
 }
 
 #if defined(ICCAVR)
@@ -565,48 +565,48 @@ ISR(USART_RXC_vect)
 #endif
 {
    /* Feed byte to VTTester 8-byte protocol buffer */
-   rx_proto_buf[rx_proto_pos++] = UDR;
-   if( rx_proto_pos >= VTTESTER_FRAME_LEN ) { rx_proto_pos = 0; rx_proto_ready = 1; }
-   /* 10-byte legacy path: remote (typ==1) only. Power supply (typ==0) uses 8-byte protocol only. */
-   if( typ == 1 )
+   proto_rx_frame[proto_rx_pos++] = UDR;
+   if( proto_rx_pos >= VTTESTER_FRAME_LEN ) { proto_rx_pos = 0; proto_frame_ready = 1; }
+   /* 10-byte legacy path: remote (tube_type_index==1) only. Power supply (tube_type_index==0) uses 8-byte protocol only. */
+   if( tube_type_index == 1 )
    {
-      bufin[irx] = UDR;
-      if( irx < 9 )
+      legacy_rx_buffer[legacy_rx_index] = UDR;
+      if( legacy_rx_index < 9 )
       {
-         irx++;
+         legacy_rx_index++;
       }
       else
       {
-         bufinta = bufin[6]; bufinta <<= 8; bufinta += bufin[5];
-         bufintg2 = bufin[8]; bufintg2 <<= 8; bufintg2 += bufin[7];
+         legacy_decoded_ua = legacy_rx_buffer[6]; legacy_decoded_ua <<= 8; legacy_decoded_ua += legacy_rx_buffer[5];
+         legacy_decoded_ug2 = legacy_rx_buffer[8]; legacy_decoded_ug2 <<= 8; legacy_decoded_ug2 += legacy_rx_buffer[7];
 
-         if( (((uint16_t)(bufin[6])<<8) + bufin[5]) > 300 ) NOP;
+         if( (((uint16_t)(legacy_rx_buffer[6])<<8) + legacy_rx_buffer[5]) > 300 ) NOP;
 
          /* 10-byte legacy path: no CRC (backward-compatible LCD dump); byte 9 unused */
-         if( !((bufin[0] != ESC)||
-              ((bufin[1] != 28)&&(bufin[1] != 29))||
-               (bufin[2] > 240)||
-               (bufin[3] > 200)||
-               (bufin[4] > 250)||
-              ((bufin[3] !=0 ) && (bufin[4] !=0 ))||
-               (bufinta > 300)||
-               (bufintg2 > 300 )) )
+         if( !((legacy_rx_buffer[0] != ESC)||
+              ((legacy_rx_buffer[1] != 28)&&(legacy_rx_buffer[1] != 29))||
+               (legacy_rx_buffer[2] > 240)||
+               (legacy_rx_buffer[3] > 200)||
+               (legacy_rx_buffer[4] > 250)||
+              ((legacy_rx_buffer[3] !=0 ) && (legacy_rx_buffer[4] !=0 ))||
+               (legacy_decoded_ua > 300)||
+               (legacy_decoded_ug2 > 300 )) )
          {
-            lamprem.nazwa[7] = bufin[1];
-            ug1set = liczug1( lamprem.ug1def = bufin[2] );
-            uhset = lamprem.uhdef = bufin[3];
-            ihset = lamprem.ihdef = bufin[4];
-            uaset = lamprem.uadef = bufinta;
-            ug2set = lamprem.ug2def = bufintg2;
+            catalog_remote.tube_name[7] = legacy_rx_buffer[1];
+            setpoint_ug1 = liczug1( catalog_remote.voltage_g1_set = legacy_rx_buffer[2] );
+            setpoint_uh = catalog_remote.voltage_heater_set = legacy_rx_buffer[3];
+            setpoint_ih = catalog_remote.current_heater_set = legacy_rx_buffer[4];
+            setpoint_ua = catalog_remote.voltage_anode_set = legacy_decoded_ua;
+            setpoint_ug2 = catalog_remote.voltage_screen_set = legacy_decoded_ug2;
          }
-         irx = 0;
-         txen = 1;
+         legacy_rx_index = 0;
+         tx_send_flag = 1;
       }
-      tout = MS250; // zeruj odliczanie czasu od ostatniego
+      legacy_rx_timeout_ticks = MS250; // zeruj odliczanie czasu od ostatniego
    }
    else
    {
-      if( UDR == ESC ) { txen = 1; }
+      if( UDR == ESC ) { tx_send_flag = 1; }
    }
 }
 
@@ -617,117 +617,117 @@ void timer2_comp(void)
 ISR(TIMER2_COMP_vect)
 #endif
 {
-   if( zwloka != 0 ) { zwloka--; }
-   if( tout > 1 ) { tout--; }
-   if( tout == 1 ) { tout = 0; irx = 0; crc = 0; }
-   if( anode == 29 ) SETSEL; else RSTSEL;
+   if( delay_ticks_remaining != 0 ) { delay_ticks_remaining--; }
+   if( legacy_rx_timeout_ticks > 1 ) { legacy_rx_timeout_ticks--; }
+   if( legacy_rx_timeout_ticks == 1 ) { legacy_rx_timeout_ticks = 0; legacy_rx_index = 0; legacy_crc = 0; }
+   if( anode_system_select == 29 ) SETSEL; else RSTSEL;
 
    if( DUSK0 )
    {
-      if( dusk0 < DMAX ) { dusk0++; } else { nodus = 0; }
+      if( debounce_set_button_hold_ticks < DMAX ) { debounce_set_button_hold_ticks++; } else { debounce_encoder_ticks_stable_cnt = 0; }
    }
    else
    {
-      if( nodus < DMIN )
+      if( debounce_encoder_ticks_stable_cnt < DMIN )
       {
-         nodus++;
+         debounce_encoder_ticks_stable_cnt++;
       }
       else
       {
-         if( (dusk0 > DMIN) && (dusk0 < DMAX) )
+         if( (debounce_set_button_hold_ticks > DMIN) && (debounce_set_button_hold_ticks < DMAX) )
          {
-            if( (typ > 1) && (err == 0) )
+            if( (tube_type_index > 1) && (alarm_error_bits == 0) )
             {
-               if( (start == 0) && (adr == 0) )   // start
+               if( (sequencer_phase_ticks == 0) && (edit_field_index == 0) )   // sequencer_phase_ticks
                {
-                  start = (tuh+(TUG+TUA+TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2));
-                  stop = 1;                 // stop po zakonczeniu pomiaru
+                  sequencer_phase_ticks = (heating_time_ticks+(TUG+TUA+TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2));
+                  measurement_stop_request = 1;                 // measurement_stop_request po zakonczeniu pomiaru
                   zersrk();
                }
-               if( start == (FUH+2) ) // restart
+               if( sequencer_phase_ticks == (FUH+2) ) // restart
                {
-                  start = (TUG+TUA+TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2); // ponowny pomiar
-                  stop = 1;                    // stop po zakonczeniu pomiaru
+                  sequencer_phase_ticks = (TUG+TUA+TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2); // ponowny pomiar
+                  measurement_stop_request = 1;                    // measurement_stop_request po zakonczeniu pomiaru
                   zersrk();
                }
             }
          }
-         dusk0 = 0;
+         debounce_set_button_hold_ticks = 0;
       }
    }
-   dziel++;
-   if( dziel >= MRUG )
+   sync_tick_divider++;
+   if( sync_tick_divider >= MRUG )
    {
-      dziel = 0;
-      sync = 1;
-      if( remote_meas_trigger && (start == 0) && (err == 0) && (typ == 1) )
+      sync_tick_divider = 0;
+      main_loop_sync_flag = 1;
+      if( remote_meas_trigger && (sequencer_phase_ticks == 0) && (alarm_error_bits == 0) && (tube_type_index == 1) )
       {
-         start = (tuh+(TUG+TUA+TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2));
-         stop = 1;
+         sequencer_phase_ticks = (heating_time_ticks+(TUG+TUA+TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2));
+         measurement_stop_request = 1;
          zersrk();
          remote_meas_trigger = 0;
       }
 //***** Sekwencja zalaczanie/wylaczanie napiec ****************
-      if( start == (tuh+(TUG+TUA+TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) )
+      if( sequencer_phase_ticks == (heating_time_ticks+(TUG+TUA+TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) )
       {
-         if( lamptem.uhdef != 0)
+         if( catalog_current.voltage_heater_set != 0)
          {
-            uhset = lamptem.uhdef;
-            ihset = lamptem.ihdef = 0;
+            setpoint_uh = catalog_current.voltage_heater_set;
+            setpoint_ih = catalog_current.current_heater_set = 0;
          }
-         if( lamptem.ihdef != 0)
+         if( catalog_current.current_heater_set != 0)
          {
-            ihset = lamptem.ihdef;
-            uhset = lamptem.uhdef = 0;
+            setpoint_ih = catalog_current.current_heater_set;
+            setpoint_uh = catalog_current.voltage_heater_set = 0;
          }
       }
-      if( start == (    (TUG+TUA+TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) )
+      if( sequencer_phase_ticks == (    (TUG+TUA+TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) )
       {
-         if( (lamptem.nazwa[7] == '2') || (lamptem.nazwa[7] == 29) ) { anode = 29; } // anoda 2
-         ug1set = ug1ref - 11; // UgR
+         if( (catalog_current.tube_name[7] == '2') || (catalog_current.tube_name[7] == 29) ) { anode_system_select = 29; } // anoda 2
+         setpoint_ug1 = ug1_dac_ref - 11; // UgR
       }
-      if( start == (    (    TUA+TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) )
+      if( sequencer_phase_ticks == (    (    TUA+TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) )
       {
-         uaset = lamptem.uadef;
+         setpoint_ua = catalog_current.voltage_anode_set;
       }
-      if( start == (    (        TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { ug2set = lamptem.ug2def; }
+      if( sequencer_phase_ticks == (    (        TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { setpoint_ug2 = catalog_current.voltage_screen_set; }
 
 // wystaw Uh/Ih   UgR   Ua   Ug2            UgL          Ug   UaL           UaR          Ua              Ug2    Ua   Ug   Uh/Ih   SPKON     [SPKOFF]     SPKON      SPKOFF STOP Tx
-// czekaj      tuh   TUG  TUA   TUG2    TMAR   TUG   TMAR  TUG   TUA    TMAR   TUA   TMAR  TUA       TMAR   FUG2  FUA  FUG     FUH     BEEP-0      BEEP-1     BEEP-2      2    1  0
-// czytaj                           IagR          IagL              IaaL          IaaR        Ug2/Ig2
+// czekaj      heating_time_ticks   TUG  TUA   TUG2    TMAR   TUG   TMAR  TUG   TUA    TMAR   TUA   TMAR  TUA       TMAR   FUG2  FUA  FUG     FUH     BEEP-0      BEEP-1     BEEP-2      2    1  0
+// read_eeprom_flag                           IagR          IagL              IaaL          IaaR        Ug2/Ig2
 // oblicz                                          S                               R      K
 
-      if( start == (    (             TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { ugr = ug1; iar = (range==0)?ia:ia*10; } // IagR
-      if( start == (    (                  TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { ug1set = ug1ref + 11; } // UgL
-      if( start == (    (                      TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { ugl = ug1; ial = (range==0)?ia:ia*10; if( iar != ial ) { ial -= iar; ugr -= ugl; s = ial; s /= ugr; } else s = 999; } // IagL S
-      if( start == (    (                           TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { ug1set = ug1ref; } // Ug
-      if( start == (    (                               TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { uaset = lamptem.uadef - 10; } // UaL
-      if( start == (    (                                   TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { ual = ua; ial = (range==0)?ia:ia*10; } // IaaL
-      if( start == (    (                                        TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { uaset = lamptem.uadef + 10; } // UaR
-      if( start == (    (                                            TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { uar = ua; iar = (range==0)?ia:ia*10; if( iar != ial ) { uar -= ual; uar *= 1000; iar -= ial; r = uar; r /= iar; } else r = 999; } // IaaR R
-      if( start == (    (                                                 TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { uaset = lamptem.uadef; lint = s; lint *= r; lint += 50; lint /= 100; if( lint < 9999 ) { k = (uint16_t)lint; } else k = 9999; } // K=R*S
-      if( start == (    (                                                     TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { uhlcd = uh; ihlcd = ih; ug1lcd = ug1; ualcd = ua; ialcd = ia; rangelcd = range; ug2lcd = ug2; ig2lcd = ig2; slcd = s; rlcd = r; klcd = k; txen = 1; if( remote_meas_pending ) remote_meas_ready = 1; }
-      if( start == (    (                                                          FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { ug2set = 0; if( typ == 0 ) lamptem.ug2def = 0; }
-      if( start == (    (                                                               FUA+FUG+(BIP-0)+FUH+2)) ) { uaset = 0; if( typ == 0 ) lamptem.uadef = 0; }
-      if( start == (    (                                                                   FUG+(BIP-0)+FUH+2)) ) { ug1set = ug1zer; anode = 28; }
-      if( start == (    (                                                                       (BIP-0)+FUH+2)) ) { if( stop != 0 ) SPKON; }
-      if( start == (    (                                                                       (BIP-1)+FUH+2)) ) { if( err != 0 ) { SPKOFF; uhset = ihset = 0; if( typ == 0 ) { lamptem.uhdef = lamptem.ihdef = 0; } } } // alarm - wylacz tez zarzenie
-      if( start == (    (                                                                       (BIP-2)+FUH+2)) ) { if( stop != 0 ) SPKON; }
-      if( start == (    (                                                                       (BIP-3)+FUH+2)) ) { SPKOFF; }
-      if( start == (    (                                                                               FUH+1)) ) { uhset = ihset = 0; if( typ == 0 ) { lamptem.uhdef = lamptem.ihdef = 0; } }
-      if( start == (    (                                                                                   1)) ) { err = 0; zersrk(); }
+      if( sequencer_phase_ticks == (    (             TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { meas_ug1_right = meas_ug1; meas_ia_right = (ia_range_hi==0)?meas_ia:meas_ia*10; } // IagR
+      if( sequencer_phase_ticks == (    (                  TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { setpoint_ug1 = ug1_dac_ref + 11; } // UgL
+      if( sequencer_phase_ticks == (    (                      TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { meas_ug1_left = meas_ug1; meas_ia_left = (ia_range_hi==0)?meas_ia:meas_ia*10; if( meas_ia_right != meas_ia_left ) { meas_ia_left -= meas_ia_right; meas_ug1_right -= meas_ug1_left; slope_s = meas_ia_left; slope_s /= meas_ug1_right; } else slope_s = 999; } // IagL S
+      if( sequencer_phase_ticks == (    (                           TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { setpoint_ug1 = ug1_dac_ref; } // Ug
+      if( sequencer_phase_ticks == (    (                               TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { setpoint_ua = catalog_current.voltage_anode_set - 10; } // UaL
+      if( sequencer_phase_ticks == (    (                                   TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { meas_ua_left = meas_ua; meas_ia_left = (ia_range_hi==0)?meas_ia:meas_ia*10; } // IaaL
+      if( sequencer_phase_ticks == (    (                                        TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { setpoint_ua = catalog_current.voltage_anode_set + 10; } // UaR
+      if( sequencer_phase_ticks == (    (                                            TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { meas_ua_right = meas_ua; meas_ia_right = (ia_range_hi==0)?meas_ia:meas_ia*10; if( meas_ia_right != meas_ia_left ) { meas_ua_right -= meas_ua_left; meas_ua_right *= 1000; meas_ia_right -= meas_ia_left; resistance_r = meas_ua_right; resistance_r /= meas_ia_right; } else resistance_r = 999; } // IaaR R
+      if( sequencer_phase_ticks == (    (                                                 TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { setpoint_ua = catalog_current.voltage_anode_set; calc_temp_a = slope_s; calc_temp_a *= resistance_r; calc_temp_a += 50; calc_temp_a /= 100; if( calc_temp_a < 9999 ) { amplification_k = (uint16_t)calc_temp_a; } else amplification_k = 9999; } // K=R*S
+      if( sequencer_phase_ticks == (    (                                                     TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { lcd_uh = meas_uh; lcd_ih = meas_ih; lcd_ug1 = meas_ug1; lcd_ua = meas_ua; lcd_ia = meas_ia; ia_range_lcd = ia_range_hi; lcd_ug2 = meas_ug2; lcd_ig2 = meas_ig2; lcd_s = slope_s; lcd_r = resistance_r; lcd_k = amplification_k; tx_send_flag = 1; if( remote_meas_pending ) remote_meas_ready = 1; }
+      if( sequencer_phase_ticks == (    (                                                          FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { setpoint_ug2 = 0; if( tube_type_index == 0 ) catalog_current.voltage_screen_set = 0; }
+      if( sequencer_phase_ticks == (    (                                                               FUA+FUG+(BIP-0)+FUH+2)) ) { setpoint_ua = 0; if( tube_type_index == 0 ) catalog_current.voltage_anode_set = 0; }
+      if( sequencer_phase_ticks == (    (                                                                   FUG+(BIP-0)+FUH+2)) ) { setpoint_ug1 = ug1_dac_zero; anode_system_select = 28; }
+      if( sequencer_phase_ticks == (    (                                                                       (BIP-0)+FUH+2)) ) { if( measurement_stop_request != 0 ) SPKON; }
+      if( sequencer_phase_ticks == (    (                                                                       (BIP-1)+FUH+2)) ) { if( alarm_error_bits != 0 ) { SPKOFF; setpoint_uh = setpoint_ih = 0; if( tube_type_index == 0 ) { catalog_current.voltage_heater_set = catalog_current.current_heater_set = 0; } } } // alarm - wylacz tez zarzenie
+      if( sequencer_phase_ticks == (    (                                                                       (BIP-2)+FUH+2)) ) { if( measurement_stop_request != 0 ) SPKON; }
+      if( sequencer_phase_ticks == (    (                                                                       (BIP-3)+FUH+2)) ) { SPKOFF; }
+      if( sequencer_phase_ticks == (    (                                                                               FUH+1)) ) { setpoint_uh = setpoint_ih = 0; if( tube_type_index == 0 ) { catalog_current.voltage_heater_set = catalog_current.current_heater_set = 0; } }
+      if( sequencer_phase_ticks == (    (                                                                                   1)) ) { alarm_error_bits = 0; zersrk(); }
 
-      takt++;
-      takt &= 0x03;
-      if( (takt == 2) && (dusk0 == DMAX) ) takt = 0;
+      display_blink_phase++;
+      display_blink_phase &= 0x03;
+      if( (display_blink_phase == 2) && (debounce_set_button_hold_ticks == DMAX) ) display_blink_phase = 0;
 
-      if( start == (FUH+2) )
+      if( sequencer_phase_ticks == (FUH+2) )
       {
-         if( stop == 0 ) start = (FUH+1);
+         if( measurement_stop_request == 0 ) sequencer_phase_ticks = (FUH+1);
       }
       else
       {
-         if( start > 0 ) { start--; }
+         if( sequencer_phase_ticks > 0 ) { sequencer_phase_ticks--; }
       }
    }
 }
@@ -794,25 +794,25 @@ int main(void)
 
 //***** Inicjalizacja zmiennych *******************************
 
-   vref = 509;                                  // vref >= 480
-   TOPPWM = 61 * vref / 100;             // okres PWM Ua i Ug2
+   adc_vref_scaled = 509;                                  // adc_vref_scaled >= 480
+   TOPPWM = 61 * adc_vref_scaled / 100;             // okres PWM Ua i Ug2
 
-   ug1set = ug1zer = ug1ref = liczug1( 240 );    // -24.0V
-   lamptem.ug1def = 240;
-   anode = 28;
-   irx = 0;
-   rx_proto_pos = 0;
-   rx_proto_ready = 0;
+   setpoint_ug1 = ug1_dac_zero = ug1_dac_ref = liczug1( 240 );    // -24.0V
+   catalog_current.voltage_g1_set = 240;
+   anode_system_select = 28;
+   legacy_rx_index = 0;
+   proto_rx_pos = 0;
+   proto_frame_ready = 0;
    remote_meas_trigger = 0;
    remote_meas_pending = 0;
    remote_meas_ready = 0;
-   tout = MS250; // zeruj odliczanie czasu od ostatniego rx
-   load_lamprom( 1, &lamprem ); // load from EEPROM rather than hold in RAM
-   wartmin = 0;
-   wartmax = (ELAMP+FLAMP-1);  // wszystkie lampy
-   wart = &typ;                               // wskaz na Typ
-   EEPROM_READ(&poptyp, typ); // ustaw na ostatnio aktywny
-   lastyp = typ;
+   legacy_rx_timeout_ticks = MS250; // zeruj odliczanie czasu od ostatniego rx
+   load_lamprom( 1, &catalog_remote ); // load from EEPROM rather than hold in RAM
+   edit_value_min = 0;
+   edit_value_max = (ELAMP+FLAMP-1);  // wszystkie lampy
+   edit_value_ptr = &tube_type_index;                               // wskaz na Typ
+   EEPROM_READ(&eeprom_last_tube_type, tube_type_index); // ustaw na ostatnio aktywny
+   tube_type_index_prev = tube_type_index;
    ADMUX = ADRIH;
 
    SEI;                                    // wlacz przerwania
@@ -829,55 +829,55 @@ int main(void)
 // S=99.9 u=99.9 R=9999
 // ====================
 
-   cstr2rs( "\r\nPress <ESC> to get LCD copy\r\nNr Type Uh[V] Ih[mA] -Ug[V] Ua[V] Ia[mA] Ug2[V] Ig2[mA] S[mA/V] R[k] K[V/V]" );
+   cstr2rs( "\resistance_r\nPress <ESC> to get LCD copy\resistance_r\nNr Type Uh[V] Ih[mA] -Ug[V] Ua[V] Ia[mA] Ug2[V] Ig2[mA] S[mA/V] R[amplification_k] K[V/V]" );
 
 //***** Glowna petla programu *********************************
 
    while( 1 )
    {
       WDR;
-      if ( sync == 1 )
+      if ( main_loop_sync_flag == 1 )
       {
-         sync = 0;
+         main_loop_sync_flag = 0;
 
-//***** VTTester 8-byte protocol (power supply typ==0, remote typ==1 only) ***
+//***** VTTester 8-byte protocol (power supply tube_type_index==0, remote tube_type_index==1 only) ***
          /* Parser sets parsed.err_code (OK, OUT_OF_RANGE, CRC, INVALID_CMD, UNKNOWN); we send it + error_param/error_value for SET. */
-         if( typ <= 1 )
+         if( tube_type_index <= 1 )
          {
-            if( rx_proto_ready )
+            if( proto_frame_ready )
             {
                vttester_parsed_t parsed;
                uint8_t cmd, i;
-               rx_proto_ready = 0;
-               cmd = vttester_parse_message( rx_proto_buf, &parsed );
-               // if command is SET, check if it's valid and send ACK or ERR
+               proto_frame_ready = 0;
+               cmd = vttester_parse_message( proto_rx_frame, &parsed );
+               // if command is SET, check if it'slope_s valid and send ACK or ERR
                if( cmd == VTTESTER_CMD_SET )
                {
-                  if( parsed.set.error_param == 0 && typ == 1 )
+                  if( parsed.set.error_param == 0 && tube_type_index == 1 )
                   {
-                     lamprem.uhdef = parsed.set.uhdef;
-                     lamprem.ihdef = parsed.set.ihdef;
-                     lamprem.ug1def = parsed.set.ug1def;
-                     lamprem.uadef = parsed.set.uadef;
-                     lamprem.ug2def = parsed.set.ug2def;
-                     uhset = parsed.set.uhdef;
-                     ihset = parsed.set.ihdef;
-                     ug1set = ug1ref = liczug1( parsed.set.ug1def );
-                     uaset = parsed.set.uadef;
-                     ug2set = parsed.set.ug2def;
-                     tuh = (uint16_t)parsed.set.tuh_ticks * 240u / 60u;
-                     lamptem = lamprem;
+                     catalog_remote.voltage_heater_set = parsed.set.voltage_heater_set;
+                     catalog_remote.current_heater_set = parsed.set.current_heater_set;
+                     catalog_remote.voltage_g1_set = parsed.set.voltage_g1_set;
+                     catalog_remote.voltage_anode_set = parsed.set.voltage_anode_set;
+                     catalog_remote.voltage_screen_set = parsed.set.voltage_screen_set;
+                     setpoint_uh = parsed.set.voltage_heater_set;
+                     setpoint_ih = parsed.set.current_heater_set;
+                     setpoint_ug1 = ug1_dac_ref = liczug1( parsed.set.voltage_g1_set );
+                     setpoint_ua = parsed.set.voltage_anode_set;
+                     setpoint_ug2 = parsed.set.voltage_screen_set;
+                     heating_time_ticks = (uint16_t)parsed.set.tuh_ticks * 240u / 60u;
+                     catalog_current = catalog_remote;
                   }
                   // send ACK or ERR
-                  vttester_send_response( tx_proto_buf, parsed.index,
+                  vttester_send_response( proto_tx_frame, parsed.index,
                      parsed.err_code, parsed.set.error_param, parsed.set.error_value );
-                  for( i = 0; i < VTTESTER_FRAME_LEN; i++ ) char2rs( tx_proto_buf[i] );
+                  for( i = 0; i < VTTESTER_FRAME_LEN; i++ ) char2rs( proto_tx_frame[i] );
                }
-               // if command is MEAS, send OK and start measurement
+               // if command is MEAS, send OK and sequencer_phase_ticks measurement
                else if( cmd == VTTESTER_CMD_MEAS )
                {
-                  vttester_send_response( tx_proto_buf, parsed.index, VTTESTER_ERR_OK, 0, 0 );
-                  for( i = 0; i < VTTESTER_FRAME_LEN; i++ ) char2rs( tx_proto_buf[i] );
+                  vttester_send_response( proto_tx_frame, parsed.index, VTTESTER_ERR_OK, 0, 0 );
+                  for( i = 0; i < VTTESTER_FRAME_LEN; i++ ) char2rs( proto_tx_frame[i] );
                   remote_meas_index = parsed.index;
                   remote_meas_pending = 1;
                   remote_meas_trigger = 1;
@@ -885,37 +885,37 @@ int main(void)
                else
                {
                   /* cmd == VTTESTER_CMD_NONE: CRC, invalid cmd, or unknown */
-                  vttester_send_response( tx_proto_buf, parsed.index, parsed.err_code, 0, 0 );
-                  for( i = 0; i < VTTESTER_FRAME_LEN; i++ ) char2rs( tx_proto_buf[i] );
+                  vttester_send_response( proto_tx_frame, parsed.index, parsed.err_code, 0, 0 );
+                  for( i = 0; i < VTTESTER_FRAME_LEN; i++ ) char2rs( proto_tx_frame[i] );
                }
             }
             // if measurement is ready, send the result
             if( remote_meas_ready )
             {
                uint8_t alarm_bits = 0, i;
-               if( err & OVERIH ) alarm_bits |= VTTESTER_ALARM_OVERIH;
-               if( err & OVERIA ) alarm_bits |= VTTESTER_ALARM_OVERIA;
-               if( err & OVERIG ) alarm_bits |= VTTESTER_ALARM_OVERIG;
-               if( err & OVERTE ) alarm_bits |= VTTESTER_ALARM_OVERTE;
-               vttester_send_measurement( tx_proto_buf, remote_meas_index, ihlcd, ialcd, rangelcd, ig2lcd, slcd, alarm_bits );
-               for( i = 0; i < VTTESTER_FRAME_LEN; i++ ) char2rs( tx_proto_buf[i] );
+               if( alarm_error_bits & OVERIH ) alarm_bits |= VTTESTER_ALARM_OVERIH;
+               if( alarm_error_bits & OVERIA ) alarm_bits |= VTTESTER_ALARM_OVERIA;
+               if( alarm_error_bits & OVERIG ) alarm_bits |= VTTESTER_ALARM_OVERIG;
+               if( alarm_error_bits & OVERTE ) alarm_bits |= VTTESTER_ALARM_OVERTE;
+               vttester_send_measurement( proto_tx_frame, remote_meas_index, lcd_ih, lcd_ia, ia_range_lcd, lcd_ig2, lcd_s, alarm_bits );
+               for( i = 0; i < VTTESTER_FRAME_LEN; i++ ) char2rs( proto_tx_frame[i] );
                remote_meas_ready = 0;
                remote_meas_pending = 0;
             }
          }
          else
          {
-            /* Local mode (typ > 1): ignore protocol; discard any received 8-byte frame */
-            if( rx_proto_ready ) rx_proto_ready = 0;
+            /* Local mode (tube_type_index > 1): ignore protocol; discard any received 8-byte frame */
+            if( proto_frame_ready ) proto_frame_ready = 0;
          }
 
 //***** Wyswietlenie zawartosci bufora ************************
          display_refresh();
       }
       GICR = BIT(INT1);                             // wlacz INT1
-      if( (err != 0) && ((start == 0) || (start > (TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2))) ) { stop = 1; start = (TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2); } // awaryjne wylaczenie
+      if( (alarm_error_bits != 0) && ((sequencer_phase_ticks == 0) || (sequencer_phase_ticks > (TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2))) ) { measurement_stop_request = 1; sequencer_phase_ticks = (TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2); } // awaryjne wylaczenie
 
-//***** Menu, katalog, edycja, obliczenia (wypelnianie buf[]) *****
+//***** Menu, katalog, edycja, obliczenia (wypelnianie lcd_line_buffer[]) *****
       control_update( ascii );
    }
 
