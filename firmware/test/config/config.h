@@ -32,17 +32,17 @@
 #define FLAMP_TEST  3u
 #define ELAMP_TEST  2u
 typedef struct {
-   uint8_t nazwa[9];
-   uint8_t uhdef;
-   uint8_t ihdef;
-   uint8_t ug1def;
-   uint16_t  uadef;
-   uint16_t  iadef;
-   uint16_t  ug2def;
-   uint16_t  ig2def;
-   uint16_t  sdef;
-   uint16_t  rdef;
-   uint16_t  kdef;
+   uint8_t tube_name[9];
+   uint8_t voltage_heater_set;
+   uint8_t current_heater_set;
+   uint8_t voltage_g1_set;
+   uint16_t voltage_anode_set;
+   uint16_t current_anode_ref;
+   uint16_t voltage_screen_set;
+   uint16_t current_screen_ref;
+   uint16_t slope_ref;
+   uint16_t r_anode_ref;
+   uint16_t k_amplification_ref;
 } katalog;
 
 #define FLAMP  FLAMP_TEST
