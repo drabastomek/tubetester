@@ -34,11 +34,11 @@
 
 /* --- Parsed SET parameters (from vttester_parse_message when cmd == SET) --- */
 typedef struct {
-   uint8_t uhdef;
-   uint8_t ihdef;
-   uint8_t ug1def;
-   uint16_t  uadef;
-   uint16_t  ug2def;
+   uint8_t voltage_heater_set;
+   uint8_t current_heater_set;
+   uint8_t voltage_g1_set;
+   uint16_t  voltage_anode_set;
+   uint16_t  voltage_screen_set;
    uint16_t  tuh_ticks;
    uint8_t error_param;
    uint16_t  error_value;
@@ -59,16 +59,16 @@ typedef struct {
    For SET, out->set.error_param/error_value are set when err_code == OUT_OF_RANGE. */
 uint8_t vttester_parse_message(const uint8_t *frame, vttester_parsed_t *out);
 
-/* Build SET or MEAS ACK into buf (8 bytes). err_code = VTTESTER_ERR_*.
+/* Build SET or MEAS ACK into lcd_line_buffer (8 bytes). err_code = VTTESTER_ERR_*.
    When err_code == VTTESTER_ERR_OUT_OF_RANGE, param_id (1..5) and value
    are written to R2 and R3-R4; otherwise param_id/value are ignored. */
-void vttester_send_response(uint8_t *buf, uint8_t index, uint8_t err_code,
+void vttester_send_response(uint8_t *lcd_line_buffer, uint8_t index, uint8_t err_code,
    uint8_t param_id, uint16_t value);
 
-/* Build MEAS result frame into buf (8 bytes). ihlcd 0..250, ialcd in 0.01mA,
-   rangelcd 0/1, ig2lcd 0.01mA, slcd 0..999, alarm_bits = VTTESTER_ALARM_* mask. */
-void vttester_send_measurement(uint8_t *buf, uint8_t index,
-   uint16_t ihlcd, uint16_t ialcd, uint8_t rangelcd,
-   uint16_t ig2lcd, uint16_t slcd, uint8_t alarm_bits);
+/* Build MEAS result frame into lcd_line_buffer (8 bytes). lcd_ih 0..250, lcd_ia in 0.01mA,
+   ia_range_lcd 0/1, lcd_ig2 0.01mA, lcd_s 0..999, alarm_bits = VTTESTER_ALARM_* mask. */
+void vttester_send_measurement(uint8_t *lcd_line_buffer, uint8_t index,
+   uint16_t lcd_ih, uint16_t lcd_ia, uint8_t ia_range_lcd,
+   uint16_t lcd_ig2, uint16_t lcd_s, uint8_t alarm_bits);
 
 #endif /* VTTESTER_REMOTE_H */

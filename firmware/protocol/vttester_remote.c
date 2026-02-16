@@ -38,13 +38,13 @@ static const uint8_t crc8_table[256] = {
 
 static uint8_t crc8_compute(const uint8_t *data, uint8_t len)
 {
-    uint8_t crc = 0;
+    uint8_t legacy_crc = 0;
 #if !defined(VTTESTER_HOST_TEST) && !defined(ICCAVR)
-    while (len--) crc = pgm_read_byte(&crc8_table[crc ^ *data++]);
+    while (len--) legacy_crc = pgm_read_byte(&crc8_table[legacy_crc ^ *data++]);
 #else
-    while (len--) crc = crc8_table[crc ^ *data++];
+    while (len--) legacy_crc = crc8_table[legacy_crc ^ *data++];
 #endif
-    return crc;
+    return legacy_crc;
 }
 
 static void frame_append_crc(uint8_t *f)
@@ -52,12 +52,12 @@ static void frame_append_crc(uint8_t *f)
     f[7] = crc8_compute(f, 7);
 }
 
-/* HEAT_IDX 0..7 -> uhdef (0.1V). 0=off, 1=1.4, 2=2.0, 3=2.5, 4=4.0, 5=5.0, 6=6.3, 7=12.6 */
+/* HEAT_IDX 0..7 -> voltage_heater_set (0.1V). 0=off, 1=1.4, 2=2.0, 3=2.5, 4=4.0, 5=5.0, 6=6.3, 7=12.6 */
 static const uint8_t heat_voltage[8] = { 0, 14, 20, 25, 40, 50, 63, 126 };
 
 /* Simplified SET encoding (no resolution bits): P1 low nibble = heat 0..7; P2/P3 = byte*10 V, max 300 V;
-   P4 -> ug1def = P4*5 (0.1V magnitude, 0..240; 240 = -24 V, same as old code and protocol).
-   Byte 6 = tuh index 0..63 (500ms/step), tuh_ticks = index*TUH_TICK_SCALE. Main app: ug1set = liczug1(parsed.set.ug1def). */
+   P4 -> voltage_g1_set = P4*5 (0.1V magnitude, 0..240; 240 = -24 V, same as old code and protocol).
+   Byte 6 = heating_time_ticks index 0..63 (500ms/step), tuh_ticks = index*TUH_TICK_SCALE. Main app: setpoint_ug1 = liczug1(parsed.set.voltage_g1_set). */
 uint8_t vttester_parse_message(const uint8_t *frame, vttester_parsed_t *out)
 {
     uint8_t cmd, p1, p2, p3, p4, tuh_index;
@@ -101,8 +101,8 @@ uint8_t vttester_parse_message(const uint8_t *frame, vttester_parsed_t *out)
         out->set.error_value = heat_idx;
         return VTTESTER_CMD_SET;
     }
-    out->set.uhdef = heat_voltage[heat_idx];
-    out->set.ihdef = 0;
+    out->set.voltage_heater_set = heat_voltage[heat_idx];
+    out->set.current_heater_set = 0;
 
     ua_v = (uint16_t)p2 * VTTESTER_SET_UA_SCALE;
     if (ua_v > (uint16_t)VTTESTER_SET_UA_MAX) {
@@ -112,7 +112,7 @@ uint8_t vttester_parse_message(const uint8_t *frame, vttester_parsed_t *out)
         out->set.error_value = ua_v;
         return VTTESTER_CMD_SET;
     }
-    out->set.uadef = ua_v;
+    out->set.voltage_anode_set = ua_v;
 
     ug2_v = (uint16_t)p3 * VTTESTER_SET_UA_SCALE;
     if (ug2_v > (uint16_t)VTTESTER_SET_UG2_MAX) {
@@ -122,71 +122,71 @@ uint8_t vttester_parse_message(const uint8_t *frame, vttester_parsed_t *out)
         out->set.error_value = ug2_v;
         return VTTESTER_CMD_SET;
     }
-    out->set.ug2def = ug2_v;
+    out->set.voltage_screen_set = ug2_v;
 
     p4_val_01 = (uint16_t)p4 * VTTESTER_SET_UG1_P4_STEP;
     if (p4_val_01 > (uint16_t)VTTESTER_SET_UG1_MAX) {
         out->cmd = VTTESTER_CMD_SET;
-        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;  /* P4: ug1def in 0.1V magnitude, max 240 (= -24 V). */
+        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;  /* P4: voltage_g1_set in 0.1V magnitude, max 240 (= -24 V). */
         out->set.error_param = 4;
         out->set.error_value = (uint16_t)p4;
         return VTTESTER_CMD_SET;
     }
-    /* Same as old code: ug1def 0..240 in 0.1V units, 240 = -24.0 V (liczug1(240) in main app). */
-    out->set.ug1def = (uint8_t)p4_val_01;
+    /* Same as old code: voltage_g1_set 0..240 in 0.1V units, 240 = -24.0 V (liczug1(240) in main app). */
+    out->set.voltage_g1_set = (uint8_t)p4_val_01;
 
     if (tuh_index > VTTESTER_SET_TUH_INDEX_MAX) {
         out->cmd = VTTESTER_CMD_SET;
-        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;  /* Param 5: tuh index 0..63 (500 ms per step). */
+        out->err_code = VTTESTER_ERR_OUT_OF_RANGE;  /* Param 5: heating_time_ticks index 0..63 (500 ms per step). */
         out->set.error_param = 5;
         out->set.error_value = tuh_index;
         return VTTESTER_CMD_SET;
     }
-    out->err_code = VTTESTER_ERR_OK;  /* All SET params within range. */
+    out->err_code = VTTESTER_ERR_OK;  /* All SET params within ia_range_hi. */
     out->set.tuh_ticks = (uint16_t)tuh_index * VTTESTER_SET_TUH_TICK_SCALE;
 
     out->cmd = VTTESTER_CMD_SET;
     return VTTESTER_CMD_SET;
 }
 
-void vttester_send_response(uint8_t *buf, uint8_t index, uint8_t err_code,
+void vttester_send_response(uint8_t *lcd_line_buffer, uint8_t index, uint8_t err_code,
     uint8_t param_id, uint16_t value)
 {
-    buf[0] = 0x02;
-    buf[1] = index;
-    buf[2] = err_code;
-    buf[3] = buf[4] = buf[5] = buf[6] = 0;
+    lcd_line_buffer[0] = 0x02;
+    lcd_line_buffer[1] = index;
+    lcd_line_buffer[2] = err_code;
+    lcd_line_buffer[3] = lcd_line_buffer[4] = lcd_line_buffer[5] = lcd_line_buffer[6] = 0;
     if (err_code == VTTESTER_ERR_OUT_OF_RANGE) {
-        buf[3] = param_id;
-        buf[4] = (uint8_t)(value >> 8);
-        buf[5] = (uint8_t)(value & 0xFF);
+        lcd_line_buffer[3] = param_id;
+        lcd_line_buffer[4] = (uint8_t)(value >> 8);
+        lcd_line_buffer[5] = (uint8_t)(value & 0xFF);
     }
-    frame_append_crc(buf);
+    frame_append_crc(lcd_line_buffer);
 }
 
-void vttester_send_measurement(uint8_t *buf, uint8_t index,
-    uint16_t ihlcd, uint16_t ialcd, uint8_t rangelcd,
-    uint16_t ig2lcd, uint16_t slcd, uint8_t alarm_bits)
+void vttester_send_measurement(uint8_t *lcd_line_buffer, uint8_t index,
+    uint16_t lcd_ih, uint16_t lcd_ia, uint8_t ia_range_lcd,
+    uint16_t lcd_ig2, uint16_t lcd_s, uint8_t alarm_bits)
 {
-    uint16_t r;
-    (void)rangelcd;
+    uint16_t resistance_r;
+    (void)ia_range_lcd;
 
-    buf[0] = 0x02;
-    buf[1] = index;
-    if (ihlcd > 255) r = 255; else r = ihlcd;
-    buf[2] = (uint8_t)r;
-    r = ialcd + 5;
-    r /= 10;
-    if (r > 255) r = 255;
-    buf[3] = (uint8_t)r;
-    r = (uint16_t)ig2lcd * 10u + 8u;
-    r /= 16u;
-    if (r > 255) r = 255;
-    buf[4] = (uint8_t)r;
-    r = slcd + 5;
-    r /= 10;
-    if (r > 255) r = 255;
-    buf[5] = (uint8_t)r;
-    buf[6] = alarm_bits & 0xF0;
-    frame_append_crc(buf);
+    lcd_line_buffer[0] = 0x02;
+    lcd_line_buffer[1] = index;
+    if (lcd_ih > 255) resistance_r = 255; else resistance_r = lcd_ih;
+    lcd_line_buffer[2] = (uint8_t)resistance_r;
+    resistance_r = lcd_ia + 5;
+    resistance_r /= 10;
+    if (resistance_r > 255) resistance_r = 255;
+    lcd_line_buffer[3] = (uint8_t)resistance_r;
+    resistance_r = (uint16_t)lcd_ig2 * 10u + 8u;
+    resistance_r /= 16u;
+    if (resistance_r > 255) resistance_r = 255;
+    lcd_line_buffer[4] = (uint8_t)resistance_r;
+    resistance_r = lcd_s + 5;
+    resistance_r /= 10;
+    if (resistance_r > 255) resistance_r = 255;
+    lcd_line_buffer[5] = (uint8_t)resistance_r;
+    lcd_line_buffer[6] = alarm_bits & 0xF0;
+    frame_append_crc(lcd_line_buffer);
 }
