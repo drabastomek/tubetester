@@ -1,7 +1,7 @@
 /*
  * Control logic: menu, katalog, parameter editing, calculations.
- * Fills buf[] from ADC/state and handles encoder/EEPROM/setpoints.
- * Call control_update(ascii) each sync tick after display_refresh().
+ * Fills lcd_line_buffer[] from ADC/state and handles encoder/EEPROM/setpoints.
+ * Call control_update(ascii) each main_loop_sync_flag tick after display_refresh().
  */
 
 #ifndef VTTESTER_CONTROL_H
