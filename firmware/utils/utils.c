@@ -21,15 +21,15 @@ uint16_t liczug1(uint16_t pug1) { (void)pug1; return 0; }
 # include "utils.h"
 
 /* Globals used by helpers (defined in TTesterLCD32.c) */
-extern uint8_t busy, zwloka;
-extern uint16_t s, r, k, ualcd, ialcd, ug2lcd, ig2lcd, slcd, rlcd, klcd, vref;
-extern uint32_t licz, temp;
+extern uint8_t uart_tx_busy, delay_ticks_remaining;
+extern uint16_t slope_s, resistance_r, amplification_k, lcd_ua, lcd_ia, lcd_ug2, lcd_ig2, lcd_s, lcd_r, lcd_k, adc_vref_scaled;
+extern uint32_t ug1_calc_accum, ug1_calc_temp;
 
 void char2rs(uint8_t bajt)
 {
    UDR = bajt;
-   busy = 1;
-   while( busy );          /* czekaj na koniec wysylania bajtu */
+   uart_tx_busy = 1;
+   while( uart_tx_busy );          /* czekaj na koniec wysylania bajtu */
 }
 
 void cstr2rs(const char *q)
@@ -38,32 +38,32 @@ void cstr2rs(const char *q)
    {
       UDR = *q;
       q++;
-      busy = 1;
-      while( busy );
+      uart_tx_busy = 1;
+      while( uart_tx_busy );
    }
 }
 
 void delay(uint8_t opoz)
 {
-   zwloka = opoz + 1;
-   while( zwloka != 0 ) { WDR; }
+   delay_ticks_remaining = opoz + 1;
+   while( delay_ticks_remaining != 0 ) { WDR; }
 }
 
 void zersrk(void)
 {
-   s = r = k = ualcd = ialcd = ug2lcd = ig2lcd = slcd = rlcd = klcd = 0;
+   slope_s = resistance_r = amplification_k = lcd_ua = lcd_ia = lcd_ug2 = lcd_ig2 = lcd_s = lcd_r = lcd_k = 0;
 }
 
 uint16_t liczug1(uint16_t pug1)
 {
-   licz = 640000;
-   licz *= vref;
-   temp = 1024000;
-   temp *= pug1;
-   licz -= temp;
-   licz /= 725;
-   licz /= vref;
-   return (uint16_t)licz;
+   ug1_calc_accum = 640000;
+   ug1_calc_accum *= adc_vref_scaled;
+   ug1_calc_temp = 1024000;
+   ug1_calc_temp *= pug1;
+   ug1_calc_accum -= ug1_calc_temp;
+   ug1_calc_accum /= 725;
+   ug1_calc_accum /= adc_vref_scaled;
+   return (uint16_t)ug1_calc_accum;
 }
 #endif /* !VTTESTER_HOST_TEST */
 
