@@ -9,9 +9,6 @@
 #include <string.h>
 
 #ifndef VTTESTER_HOST_TEST
-#if defined(ICCAVR)
-#include <iom32v.h>
-#else
 #include <avr/io.h>
 #endif
 
@@ -19,6 +16,7 @@
 extern uint8_t lcd_line_buffer[64], edit_field_index, display_blink_phase, debounce_set_button_hold_ticks, alarm_error_bits;
 extern uint16_t tube_type_index, sequencer_phase_ticks;
 
+#ifndef VTTESTER_HOST_TEST
 void cmd2lcd(uint8_t rs, uint8_t bajt)
 {
    delay(1);

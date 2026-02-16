@@ -8,37 +8,21 @@
 
 #include <stdint.h>
 
-#if defined(ICCAVR)
-/* Unify the calls to EEPROM_READ across iccavr and avr-gcc */
-#include <string.h>
-#define EEPROM_READ(addr, var)   memcpy((void*)&(var), (const void*)(addr), sizeof(var))
-#define EEPROM_WRITE(addr, val)  memcpy((void*)(addr), (const void*)&(val), sizeof(val))
-#else
 #include <avr/eeprom.h>
 /* EEPROM API (avr-libc) for use by main and control */
 #define EEPROM_READ(addr, var)   eeprom_read_block((void*)&(var), (const void*)(addr), sizeof(var))
 #define EEPROM_WRITE(addr, val)  eeprom_write_block((const void*)&(val), (void*)(addr), sizeof(val))
-#endif
 
 /* --- MCU / asm helpers --- */
 #define BIT(x)  (1<<(x))
 #define LOW(x)  ((uint8_t)((uint16_t)(x)))
 #define HIGH(x) ((uint8_t)(((uint16_t)(x))>>8))
 #define ESC     '\033'
-#if defined(ICCAVR)
-/* ImageCraft ICCAVR: use lowercase asm mnemonic; NOP2 = short delay for LCD timing */
-#define WDR     asm("wdr")
-#define SEI     asm("sei")
-#define CLI     asm("cli")
-#define NOP     asm("nop")
-#define NOP2    asm("nop"); asm("nop"); asm("nop"); asm("nop")
-#else
 #define WDR     asm("WDR")
 #define SEI     asm("SEI")
 #define CLI     asm("CLI")
 #define NOP     asm("NOP")
 #define NOP2    asm("RJMP .+2")
-#endif
 
 /* --- Port / hardware --- */
 #define SET200    PORTB |= BIT(0)
@@ -131,8 +115,8 @@ typedef struct
    uint16_t k_amplification_ref;
 } katalog;
 
-/* ROM tube catalog: PROGMEM only for avr-gcc firmware; host tests and ICCAVR use RAM. */
-#if defined(ICCAVR) || defined(VTTESTER_HOST_TEST)
+/* ROM tube catalog: PROGMEM for firmware; host tests use RAM. */
+#if defined(VTTESTER_HOST_TEST)
 #define KATALOG_PROGMEM
 #else
 #define KATALOG_PROGMEM __attribute__((__progmem__))

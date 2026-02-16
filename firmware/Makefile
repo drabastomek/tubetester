@@ -1,42 +1,17 @@
 # VTTester firmware - ATmega32
-# Toolchain: make [TOOLCHAIN=gcc]   -> avr-gcc (default)
-#            make TOOLCHAIN=iccavr  -> ImageCraft ICCAVR (add -DICCAVR, see docs/ICCAVR_PORTING.md)
-# Requires avr-gcc + avr-binutils for TOOLCHAIN=gcc. For iccavr, have iccavr in PATH or set ICCAVR_HOME.
+# Toolchain: avr-gcc + avr-binutils. See firmware/docs/8MHZ_INTERNAL_CLOCK.md for 8 MHz internal clock testing.
 
 MCU     = atmega32
-# 16 MHz external crystal (default). For 8 MHz internal clock testing see firmware/docs/8MHZ_INTERNAL_CLOCK.md
 F_CPU   = 16000000
-TOOLCHAIN ?= gcc
 
-# --- Toolchain selection ---
-ifeq ($(TOOLCHAIN),iccavr)
-  ICCAVR_PREFIX  := $(if $(ICCAVR_HOME),$(ICCAVR_HOME)/,)
-  CC             = $(ICCAVR_PREFIX)iccavr
-  OBJCOPY        = avr-objcopy
-  SIZE           = avr-size
-  # MCU_DEF for ICCAVR: default ATMEGA32; set to ATMega32 if your IDE uses that (e.g. ICCAVR_MCU_DEF=ATMega32)
-  ICCAVR_MCU_DEF ?= $(shell echo $(MCU) | tr a-z A-Z)
-  CFLAGS         = -c -DICCAVR -D$(ICCAVR_MCU_DEF) -DF_CPU=$(F_CPU)UL -I.
-  CFLAGS        += -e -g -MLongJump -MHasMul -MEnhanced
-  LDFLAGS        = -o
-  LDFLAGS_POST   = -m$(ICCAVR_MCU_DEF) -g
-  # ICCAVR may need -L and -l for lib path; set LDFLAGS_ICCAVR_EXTRA if needed
-  LDFLAGS_ICCAVR_EXTRA ?=
-  COMPILE_CMD = $(CC) $(CFLAGS) $< -o $@
-  LINK_CMD    = $(CC) $(LDFLAGS) $@ $^ $(LDFLAGS_POST) $(LDFLAGS_ICCAVR_EXTRA)
-else
-  CC      = avr-gcc
-  OBJCOPY = avr-objcopy
-  SIZE    = avr-size
-  CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL -Os -Wall -Wextra
-  CFLAGS += -funsigned-char
-  CFLAGS += -ffunction-sections -fdata-sections -I.
-  LDFLAGS = -mmcu=$(MCU) -Wl,--gc-sections
-  LDFLAGS_POST   =
-  LDFLAGS_ICCAVR_EXTRA =
-  COMPILE_CMD = $(CC) $(CFLAGS) -c -o $@ $<
-  LINK_CMD    = $(CC) $(LDFLAGS) -o $@ $^
-endif
+CC      = avr-gcc
+OBJCOPY = avr-objcopy
+SIZE    = avr-size
+CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL -Os -Wall -Wextra
+CFLAGS += -funsigned-char -ffunction-sections -fdata-sections -I.
+LDFLAGS = -mmcu=$(MCU) -Wl,--gc-sections
+COMPILE_CMD = $(CC) $(CFLAGS) -c -o $@ $<
+LINK_CMD    = $(CC) $(LDFLAGS) -o $@ $^
 
 # Main app (adjust if your build uses IAR headers; then switch to IAR toolchain)
 SRCS    = TTesterLCD32.c
@@ -87,6 +62,4 @@ test:
 # flash: $(HEX)
 #	avrdude -p $(MCU) -c usbasp -P usb -U flash:w:$(HEX):i
 
-# Flash: .text + .data must fit in 32KB. Large const data (lamprom, crc8_table) use PROGMEM.
-#
-# ICCAVR (Windows): set ICCAVR_HOME to the compiler dir if iccavr not in PATH, e.g. make TOOLCHAIN=iccavr ICCAVR_HOME=C:/Users/Tomek/iccv8avr
+# Flash: .text + .data must fit in 32KB. Large const data (catalog_rom, crc8_table) use PROGMEM.

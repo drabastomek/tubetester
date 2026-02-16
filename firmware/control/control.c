@@ -7,11 +7,7 @@
 #include "control/control.h"
 #include "utils/utils.h"
 #ifndef VTTESTER_HOST_TEST
-#if defined(ICCAVR)
-#include <iom32v.h>
-#else
 #include <avr/io.h>
-#endif
 #endif
 
 extern uint8_t lcd_line_buffer[64], edit_field_index, encoder_new_turn_flag, debounce_encoder_ticks_stable_cnt, debounce_set_button_hold_ticks, save_eeprom_flag, read_eeprom_flag;

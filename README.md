@@ -11,7 +11,7 @@ The project began on [Forum Trioda](https://forum-trioda.pl/viewtopic.php?t=1220
 Full construction details and user documentation were later published in *Elektronika Praktyczna* issues 4/5 and 6/2010.
 
 This repository includes:
-- Microcontroller firmware for ATmega32 (compatible with avr-gcc / ICCAVR)  
+- Microcontroller firmware for ATmega32 (avr-gcc)  
 - VTTester binary protocol implementation (SET/MEAS commands, CRC-8)  
 - Python desktop application for PC-based remote control  
 

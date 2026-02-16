@@ -12,11 +12,7 @@ void delay(uint8_t opoz) { (void)opoz; }
 void zersrk(void) {}
 uint16_t liczug1(uint16_t pug1) { (void)pug1; return 0; }
 #else
-# if defined(ICCAVR)
-#  include <iom32v.h>
-# else
-#  include <avr/io.h>
-# endif
+# include <avr/io.h>
 # include "config/config.h"
 # include "utils.h"
 
