@@ -8,30 +8,30 @@
 #endif
 #include <string.h>
 
-const uint8_t AZ[37] =
+const uint8_t char_lookup_alphabet[37] =
 { 'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z','_','0','1','2','3','4','5','6','7','8','9' };
 
 /* CRC-8 only in protocol (vttester_remote.c) for 8-byte frames. 10-byte legacy path uses no CRC. */
 
 // Cyrillic characters for LCD display
-uint8_t cyrZ[8] = { 0b10101, 0b10101, 0b10101, 0b01110, 0b10101, 0b10101, 0b10101, 0b00000 };
-uint8_t cyrG[8] = { 0b11111, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b00000 };
-uint8_t cyrB[8] = { 0b11110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b11110, 0b00000 };
-uint8_t cyrD[8] = { 0b01111, 0b01001, 0b01001, 0b01001, 0b10001, 0b11111, 0b10001, 0b00000 };
-uint8_t cyrI[8] = { 0b10001, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b10001, 0b00000 };
-uint8_t cyrP[8] = { 0b11111, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b00000 };
-uint8_t cyrC[8] = { 0b10010, 0b10010, 0b10010, 0b10010, 0b10010, 0b11111, 0b00001, 0b00000 };
-uint8_t cyrF[8] = { 0b00100, 0b11111, 0b10101, 0b10101, 0b11111, 0b00100, 0b00000, 0b00000 };
-uint8_t cyrL[8] = { 0b00111, 0b01001, 0b01001, 0b01001, 0b01001, 0b01001, 0b10001, 0b00000 };
-uint8_t cyrE[8] = { 0b11110, 0b00001, 0b00001, 0b00111, 0b00001, 0b00001, 0b11110, 0b00000 };
+uint8_t cyrillic_cgram_Z[8] = { 0b10101, 0b10101, 0b10101, 0b01110, 0b10101, 0b10101, 0b10101, 0b00000 };
+uint8_t cyrillic_cgram_G[8] = { 0b11111, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b00000 };
+uint8_t cyrillic_cgram_B[8] = { 0b11110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b11110, 0b00000 };
+uint8_t cyrillic_cgram_D[8] = { 0b01111, 0b01001, 0b01001, 0b01001, 0b10001, 0b11111, 0b10001, 0b00000 };
+uint8_t cyrillic_cgram_I[8] = { 0b10001, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b10001, 0b00000 };
+uint8_t cyrillic_cgram_P[8] = { 0b11111, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b00000 };
+uint8_t cyrillic_cgram_C[8] = { 0b10010, 0b10010, 0b10010, 0b10010, 0b10010, 0b11111, 0b00001, 0b00000 };
+uint8_t cyrillic_cgram_F[8] = { 0b00100, 0b11111, 0b10101, 0b10101, 0b11111, 0b00100, 0b00000, 0b00000 };
+uint8_t cyrillic_cgram_L[8] = { 0b00111, 0b01001, 0b01001, 0b01001, 0b01001, 0b01001, 0b10001, 0b00000 };
+uint8_t cyrillic_cgram_E[8] = { 0b11110, 0b00001, 0b00001, 0b00111, 0b00001, 0b00001, 0b11110, 0b00000 };
 
 /* EEPROM variables (avr-gcc: EEMEM => .eeprom section; ICCAVR: RAM so EEPROM_READ/WRITE as memcpy work) */
 #if defined(ICCAVR)
-uint16_t poptyp = 0;
-katalog lampeep[ELAMP] = {
+uint16_t eeprom_last_tube_type = 0;
+katalog catalog_eeprom[ELAMP] = {
 #else
-uint16_t EEMEM poptyp = 0;
-katalog EEMEM lampeep[ELAMP] = {
+uint16_t EEMEM eeprom_last_tube_type = 0;
+katalog EEMEM catalog_eeprom[ELAMP] = {
 #endif
 {{ 11, 31, 26, 26, 26, 26,  9, 27, 28 }, 0,  0,  0,  0,   0,  0,   0,  0,  0,   0  },
 {{ 11, 32, 26, 26, 26, 26,  9, 27, 28 }, 0,  0,  0,  0,   0,  0,   0,  0,  0,   0  },
@@ -74,7 +74,7 @@ katalog EEMEM lampeep[ELAMP] = {
 {{ 15, 29, 26, 26, 26, 26,  9, 27, 28 }, 0,  0,  0,  0,   0,  0,   0,  0,  0,   0  },
 };
 
-const katalog lamprom[FLAMP] PROGMEM =
+const katalog catalog_rom[FLAMP] PROGMEM =
 {
 {{ 'P','W','R','S','U','P',' ', 28,' ' }, 0,  0,240,  0,   0,  0,   0,  0,  0,   0  },
 {{ 'R','E','M','O','T','E',' ', 28,' ' }, 0,  0,240,  0,   0,  0,   0,  0,  0,   0  },
@@ -437,12 +437,12 @@ const katalog lamprom[FLAMP] PROGMEM =
 {{ '3','5','8','_','_','_','J','0','1' }, 0,  0,  0,  0,   0,  0,   0,  0,  0,   0  },
 };
 
-/* load from ROM catalog; ICCAVR: lamprom in RAM so plain memcpy */
+/* load from ROM catalog; ICCAVR: catalog_rom in RAM so plain memcpy */
 void load_lamprom(uint16_t idx, katalog *dest)
 {
 #if defined(ICCAVR)
-   memcpy(dest, &lamprom[idx], sizeof(katalog));
+   memcpy(dest, &catalog_rom[idx], sizeof(katalog));
 #else
-   memcpy_P(dest, &lamprom[idx], sizeof(katalog));
+   memcpy_P(dest, &catalog_rom[idx], sizeof(katalog));
 #endif
 }

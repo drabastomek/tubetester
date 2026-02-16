@@ -97,11 +97,11 @@
 #define VTTESTER_SET_HEAT_IDX_MAX    7   /* P1 heater index: 0..7 only */
 #define VTTESTER_SET_UA_MAX          300 /* Ua: 10 V per step (P2*10), max 300 V */
 #define VTTESTER_SET_UG2_MAX         300 /* Ug2: 10 V per step (P3*10), max 300 V */
-#define VTTESTER_SET_UG1_MAX         240 /* Ug1 magnitude in 0.1V (240 = -24 V); ug1def = P4*UG1_P4_STEP, same as old code */
+#define VTTESTER_SET_UG1_MAX         240 /* Ug1 magnitude in 0.1V (240 = -24 V); voltage_g1_set = P4*UG1_P4_STEP, same as old code */
 #define VTTESTER_SET_TUH_INDEX_MAX   63 /* heating time index 0..63 (500ms per step) -> tuh_ticks = index*TUH_TICK_SCALE */
 #define VTTESTER_SET_UA_SCALE        10  /* P2/P3: 10 V per step (decoded value in volts) */
-#define VTTESTER_SET_UG1_P4_STEP     5   /* P4 -> ug1def in 0.1V magnitude: ug1def = P4*this (0.5 V per P4 step) */
-#define VTTESTER_SET_TUH_TICK_SCALE  2   /* tuh index -> tuh_ticks (2 ticks per 500ms step) */
+#define VTTESTER_SET_UG1_P4_STEP     5   /* P4 -> voltage_g1_set in 0.1V magnitude: voltage_g1_set = P4*this (0.5 V per P4 step) */
+#define VTTESTER_SET_TUH_TICK_SCALE  2   /* heating_time_ticks index -> tuh_ticks (2 ticks per 500ms step) */
 
 /* --- Sequencer timing --- */
 #define TMAR    2
@@ -118,17 +118,17 @@
 /* --- Tube catalog entry --- */
 typedef struct
 {
-   uint8_t  nazwa[9];
-   uint8_t  uhdef;
-   uint8_t  ihdef;
-   uint8_t  ug1def;
-   uint16_t uadef;
-   uint16_t iadef;
-   uint16_t ug2def;
-   uint16_t ig2def;
-   uint16_t sdef;
-   uint16_t rdef;
-   uint16_t kdef;
+   uint8_t  tube_name[9];
+   uint8_t  voltage_heater_set;
+   uint8_t  current_heater_set;
+   uint8_t  voltage_g1_set;
+   uint16_t voltage_anode_set;
+   uint16_t current_anode_ref;
+   uint16_t voltage_screen_set;
+   uint16_t current_screen_ref;
+   uint16_t slope_ref;
+   uint16_t r_anode_ref;
+   uint16_t k_amplification_ref;
 } katalog;
 
 /* ROM tube catalog: PROGMEM only for avr-gcc firmware; host tests and ICCAVR use RAM. */
@@ -137,15 +137,15 @@ typedef struct
 #else
 #define KATALOG_PROGMEM __attribute__((__progmem__))
 #endif
-extern const katalog lamprom[] KATALOG_PROGMEM;
+extern const katalog catalog_rom[] KATALOG_PROGMEM;
 void load_lamprom(uint16_t idx, katalog *dest);
 
 /* Lookup / tables (defined in config.c) */
-extern const uint8_t AZ[37];
-extern uint8_t cyrZ[8], cyrG[8], cyrB[8], cyrD[8], cyrI[8], cyrP[8], cyrC[8], cyrF[8], cyrL[8], cyrE[8];
+extern const uint8_t char_lookup_alphabet[37];
+extern uint8_t cyrillic_cgram_Z[8], cyrillic_cgram_G[8], cyrillic_cgram_B[8], cyrillic_cgram_D[8], cyrillic_cgram_I[8], cyrillic_cgram_P[8], cyrillic_cgram_C[8], cyrillic_cgram_F[8], cyrillic_cgram_L[8], cyrillic_cgram_E[8];
 
 /* EEPROM (defined in config.c) */
-extern uint16_t poptyp;
-extern katalog lampeep[ELAMP];
+extern uint16_t eeprom_last_tube_type;
+extern katalog catalog_eeprom[ELAMP];
 
 #endif /* VTTESTER_CONFIG_H */
