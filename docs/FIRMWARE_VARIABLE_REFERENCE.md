@@ -10,7 +10,7 @@ Defined in **config/config.h** (typedef struct). Tube catalog entry: name, defau
 
 | Member    | Type     | Description | New name proposal |
 |-----------|----------|-------------|-------------------|
-| nazwa[9] | uint8_t  | Tube name (ASCII) | tube_name (no change) |
+| nazwa[9] | uint8_t  | Tube name (ASCII) | tube_name |
 | uhdef    | uint8_t  | Heater voltage set (0.1 V) | voltage_heater_set |
 | ihdef    | uint8_t  | Heater current set | current_heater_set |
 | ug1def   | uint8_t  | G1 voltage set (0.1 V) | voltage_g1_set |
@@ -19,7 +19,7 @@ Defined in **config/config.h** (typedef struct). Tube catalog entry: name, defau
 | ug2def   | uint16_t | Screen voltage set (V) | voltage_screen_set |
 | ig2def   | uint16_t | Screen current reference | current_screen_ref | 
 | sdef     | uint16_t | Slope S reference | slope_ref |
-| rdef     | uint16_t | R reference | r_internal_ref |
+| rdef     | uint16_t | R reference | r_anode_ref |
 | kdef     | uint16_t | K reference | k_amplification_ref | 
 
 ---
