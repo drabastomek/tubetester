@@ -1,0 +1,265 @@
+================================================================================
+VTTester Communication Protocol - Version 0.3 (DRAFT)
+Desktop Application <--> Firmware Binary Protocol (REMOTE Mode Only)
+================================================================================
+
+REVISION HISTORY
+----------------
+v0.1 - Initial proposal (Polish document "Protokół komunikacyjny VTTester.pdf")
+v0.2 - REMOTE mode protocol for desktop app
+       SET, MEAS, READ STATUS; 8-byte frame; MEAS result with R1-R5 (indexed).
+v0.3 - (DRAFT) Add STATUS and RESET commands; MEAS result carries raw
+       voltages/currents (Uh, Ih, Ua, Ia, Ug2, Ig2, Ug1) only; S, R, K removed
+       and calculated on PC. Result encoding chosen so firmware sends internal
+       values without rounding. Multi-frame MEAS result when raw values do not
+       fit in one 8-byte frame.
+       Date: 2026-02-02
+
+================================================================================
+1. SCOPE AND RATIONALE FOR v0.3 CHANGES
+================================================================================
+
+1.1 NEW COMMANDS
+   - STATUS: Explicit query for instrument state (optional alias or refinement
+     of READ in v0.2).
+   - RESET: Reset instrument state (e.g. clear alarm latch, stop measurement,
+     return to idle). Exact semantics TBD (alarm clear only vs. full reset).
+
+1.2 MEAS RESULT: RAW MEASUREMENTS ONLY, NO S/R/K
+   - The meter does not stabilize Ua/Ug2 to exact setpoints; actual voltage
+     during measurement may differ (e.g. set 250 V, measured 248.532 V).
+   - Protocol must report actual measured voltages and currents, not assumed
+     setpoints, so the PC can compute characteristics and S/R/K correctly.
+   - S (slope), R (anode resistance), K (amplification factor) are derived
+     quantities; they will be computed on the PC from raw Uh, Ih, Ua, Ia,
+     Ug2, Ig2, Ug1. The MEAS result frame(s) therefore omit S, R, K.
+
+1.3 NO ROUNDING
+   - All reported values use a fixed scale (see section 6) so that the
+     firmware can send its internal integer representation without rounding.
+   - Types and ranges are chosen to match firmware variables (uint16_t)
+     and typical hardware ranges.
+
+================================================================================
+2. FRAME STRUCTURE (UNCHANGED FROM v0.2)
+================================================================================
+
+2.1 STANDARD 8-BYTE FRAME
+-------------------------
+
+ Byte | Field      | Description
+------|------------|--------------------------------------------------
+  0   | CTRL       | Command/Status code + flags
+  1   | INDEX      | Catalog number or tube type / echo
+  2   | P1/R1      | Parameter 1 or Response field 1
+  3   | P2/R2      | Parameter 2 or Response field 2
+  4   | P3/R3      | Parameter 3 or Response field 3
+  5   | P4/R4      | Parameter 4 or Response field 4
+  6   | P5/R5      | Parameter 5 or Response field 5
+  7   | CRC        | CRC-8 checksum of bytes 0-6
+
+CRC-8: Same algorithm as v0.2 (polynomial 0x07, init 0x00, no final XOR).
+       Table-driven implementation recommended.
+
+================================================================================
+3. CTRL BYTE - PC → FIRMWARE (REQUEST)
+================================================================================
+
+Bit Layout (unchanged from v0.2 where applicable):
+  7   6   5   4   3   2   1   0
+[CMD ][R][CRV][    FLAGS    ]
+
+Bits 7-6: CMD (Command)
+  00 = SET     - Set parameters (not saved to EEPROM)
+  01 = MEAS    - Perform measurement
+  10 = STATUS  - Read status only (same as READ in v0.2)
+  11 = RESET   - Reset instrument (clear alarm latch / stop / idle; exact semantics TBD)
+
+Bit 5: RESERVED (always 1 for SETTINGS/REMOTE mode)
+Bit 4: CURVE (0 = normal, 1 = curve tracing)
+Bits 3-0: FLAGS (reserved, 0000)
+
+Examples:
+  0x20 = SET, normal
+  0x60 = MEAS, normal
+  0xA0 = STATUS (read status)
+  0xE0 = RESET (with bit 5=1 would be 0xE0; if RESET must have bit 5 set: 0xE0 already has bits 7-6=11, so 0xE0 is RESET)
+
+Note: In v0.2, READ was 10 in bits 7-6 → 0xA0. STATUS in v0.3 is the same
+      command (read status). RESET is 11 → 0xC0 with bit 5 set → 0xE0.
+      Confirm with firmware: 0xC0 vs 0xE0 for RESET (bit 5 set for "valid" in some parsers).
+
+================================================================================
+4. CTRL BYTE - FIRMWARE → PC (RESPONSE)
+================================================================================
+
+Unchanged from v0.2 (section 4): STATUS bits 7-6 (OK/BUSY/ERROR/ALARM),
+echo bits 5-4, STATE bits 3-0.
+
+================================================================================
+5. COMMANDS (SUMMARY)
+================================================================================
+
+ 5.1 SET
+   Unchanged from v0.2. Request: CTRL=0x20 (or 0x30 curve), INDEX, P1-P5.
+   Response: 8-byte ACK; on error R1=error code, R2=param id, R3-R4=value.
+
+ 5.2 MEAS
+   Request: CTRL=0x60 (or 0x70 curve), INDEX, P1-P5 (optional overrides).
+   Response: Immediate 8-byte ACK (OK/BUSY). When measurement completes,
+   firmware sends MEAS result as four consecutive 8-byte frames (see 6.2).
+
+ 5.3 STATUS
+   Same as READ in v0.2. Request: CTRL=0xA0, INDEX=0x00, P1-P5=0.
+   Response: 8-byte frame with current status, STATE, optional R1-R5
+   (alarm flags, remaining time, last Ua/Ia/Ug1 as in v0.2).
+
+ 5.4 RESET
+   Request: CTRL=0xE0, INDEX=0x00, P1-P5=0.
+   Response: 8-byte ACK. Semantics: power down in order (Ua, then Ug1).
+   When the user is about to swap tubes, RESET also turns off Uh after Ug1
+   (order: Ua, Ug1, Uh). See section 5.5 for the measurement flow and
+   example usage.
+
+5.5 MEASUREMENT FLOW (ONE SEQUENCE; NO SINGLE VS MULTI MODE)
+-------------------------------------------------------------
+   The same SET / ACK / RESULT / RESET sequence is used for
+   every measurement. Multi-system tubes (e.g. double triode) or swapping
+   to the next physical tube simply repeat the same flow with different
+   SET parameters or an extra RESET (Uh off) before the swap.
+
+   One measurement cycle:
+
+   [PC]      Sends frame (SET or MEAS with parameters).
+   [FIRMWARE] Receives and parses: vttester_parse_message(...).
+   [METER]    Applies settings: expose Uh/Ih, UgR, Ua, Ug2, UgL, Ug, UaL,
+              UaR, Ua, Ug2, Ua, Ug, Uh/Ih, SPKON, [SPKOFF], SPKON, SPKOFF,
+              STOP, Tx (hardware sequence).
+   [PC]      —
+   [FIRMWARE] Sends ACK and starts heating/settling, or sends error:
+              vttester_send_response(...).
+   [METER]    Waits: tuh, TUG, TUA, TUG2, TMAR, TUG, TMAR, TUG, TUA, TMAR,
+              TUA, TMAR, TUA, TMAR, FUG2, FUA, FUG, FUH, BEEP-0, BEEP-1,
+              BEEP-2, 2, 1, 0. Then samples the voltages and currents that
+              are reported in the RESULT: Uh, Ih, Ua, Ia, Ug2, Ig2, Ug1.
+   [FIRMWARE] Sends measurement result: vttester_send_measurement(...).
+
+   RESET is used to power down in order (Ua, then Ug1; add Uh when
+   swapping to the next tube). Example for a double triode and then
+   the next tube:
+
+     1. SET: double triode, system 1, Uh=6.3V, Ua=200V, Ug1=1V
+     2. ACK (heating, settling)
+     3. RESULT
+     4. SET: double triode, system 1, Uh=6.3V, Ua=200V, Ug1=1.4V (for S/K)
+     5. ACK
+     6. RESULT
+     7. RESET: power down Ua, Ug1
+     8. SET: double triode, system 2, Uh=6.3V, Ua=200V, Ug1=1V
+     9. ACK
+    10. RESULT
+    11. SET: double triode, system 2, Uh=6.3V, Ua=200V, Ug1=1.4V
+    12. ACK
+    13. RESULT
+    14. RESET: power down Ua, Ug1, Uh  (then swap tube)
+    15. SET: double triode, system 1, Uh=6.3V, Ua=200V, Ug1=1V
+    16. ACK
+    17. RESULT
+    ... and so on.
+
+================================================================================
+6. MEAS RESULT (v0.3): RAW VOLTAGES AND CURRENTS
+================================================================================
+
+6.1 QUANTITIES REPORTED (NO S, R, K)
+-------------------------------------
+   All values are the actual measurements at the time of the reading, not
+   setpoints. Units and encoding are chosen so the firmware can send its
+   internal integer values without rounding.
+
+   Name | Description          | Unit (scale)     | Type    | Typical range
+   -----|----------------------|------------------|---------|------------------
+   Uh   | Heater voltage       | 0.01 V           | uint16_t| 0 .. 1500  (0 .. 15.00 V)
+   Ih   | Heater current       | 0.1 mA           | uint16_t| 0 .. 2500  (0 .. 2.500 A; 0.01 mA would exceed uint16_t for 2.5 A)
+   Ua   | Anode voltage        | 0.01 V           | uint16_t| 0 .. 30000 (0 .. 300.00 V)
+   Ia   | Anode current        | 0.01 mA          | uint16_t| 0 .. 20000 (0 .. 200.00 mA)
+   Ug2  | Screen voltage       | 0.01 V           | uint16_t| 0 .. 30000 (0 .. 300.00 V)
+   Ig2  | Screen current       | 0.01 mA          | uint16_t| 0 .. 4000  (0 .. 40.00 mA)
+   Ug1  | Grid 1 voltage       | 0.01 V magnitude | uint16_t| 0 .. 2400 (physical Ug1 = -(value/100) V, i.e. -24.00 V .. 0 V)
+
+   Plus:
+   - INDEX (echo)
+   - Alarm bitmap (same as v0.2 R5 bits 7-4: OVERTE, OVERIG, OVERIA, OVERIH)
+
+   Ih note: To avoid uint16_t overflow (2.5 A = 2500 mA, 0.01 mA = 250000),
+   Ih is encoded in 0.1 mA: 2.5 A = 2500. If firmware internally uses 0.01 A
+   (10 mA steps), then 2.5 A = 250; protocol can carry 250 in one byte but
+   that loses resolution. So 0.1 mA (2500 for 2.5 A) is a compromise unless
+   firmware uses a different internal scale.
+
+   Ug1: Unsigned magnitude only (firmware has no signed types). Protocol
+   sends uint16_t 0..2400; physical grid 1 voltage is negative: Ug1 = -(value/100) V
+   (e.g. 2400 = -24.00 V, 0 = 0 V).
+
+6.2 MULTI-FRAME 8-BYTE ENCODING (RECOMMENDED)
+----------------------------------------------
+   Each frame is 8 bytes with CRC over bytes 0-6. All 16-bit values
+   little-endian (low byte first).
+
+   Four consecutive 8-byte frames:
+     Frame 1: CTRL, INDEX, Uh_lo, Uh_hi, Ih_lo, Ih_hi, 0, CRC
+     Frame 2: CTRL, INDEX, Ua_lo, Ua_hi, Ug2_lo, Ug2_hi, 0, CRC
+     Frame 3: CTRL, INDEX, Ia_lo, Ia_hi, Ig2_lo, Ig2_hi, Ug1_lo, CRC
+     Frame 4: CTRL, INDEX, Ug1_hi, alarm, 0, 0,  CRC
+   All uint16_t values little-endian. Ug1 as uint16_t magnitude (see 6.1).
+   Alarm byte: bits 7-4 only, as in v0.2.
+
+================================================================================
+7. FIRMWARE TYPES AND SCALES (REFERENCE)
+================================================================================
+
+   Firmware variables (TTesterLCD32.c, control/control.c) use uint16_t for
+   meas_uh, meas_ih, meas_ua, meas_ia, meas_ug2, meas_ig2, meas_ug1. The
+   scaling in control.c produces integer values; the exact units are
+   determined by the ADC formulas and display (int2asc) usage.
+
+   To avoid rounding in the protocol:
+   - Define protocol units to match the firmware internal representation,
+     and document the conversion (e.g. "physical Uh = protocol_Uh * 0.01 V"),
+     OR
+   - Define protocol units so that any firmware integer can be sent exactly
+     (e.g. if firmware stores Uh in 0.1 V, protocol uses 0.1 V so value 126
+     is sent as 126 and means 12.6 V).
+
+   v0.3 recommends documenting the firmware scales in a small table (e.g. in
+   config.h or this spec) so that protocol units can be chosen to be
+   identical to firmware units, giving zero rounding.
+
+================================================================================
+8. ERROR CODES AND ALARMS
+================================================================================
+
+   Unchanged from v0.2 section 8. ERROR and ALARM status, R1/R5 encoding,
+   and RESET behavior (clear alarm latch) apply.
+
+================================================================================
+9. BACKWARD COMPATIBILITY
+================================================================================
+
+   v0.3 MEAS result is incompatible with v0.2 (different layout, no S/R/K).
+   Desktop and firmware must agree on protocol version (v0.2 vs v0.3).
+   Options: version byte in first response, or separate build/variant for
+   v0.3. Legacy ASCII ESC mode unchanged.
+
+================================================================================
+END OF PROTOCOL SPECIFICATION v0.3 (DRAFT)
+================================================================================
+
+Document: VTTester_Protocol_v0.3.txt
+Based on: VTTester_Protocol_v0.2.txt
+Date: 2026-02-02
+
+Next steps: Align firmware scales (control.c / config.h) with protocol
+units so that "no rounding" is achieved in implementation.
+
+================================================================================

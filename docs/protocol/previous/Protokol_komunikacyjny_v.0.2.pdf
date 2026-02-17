@@ -1,0 +1,293 @@
+9. UWAGI IMPLEMENTACYJNE FIRMWARE
+================================================================================
+
+9.1 WYMAGANE ZMIANY (Szacowane ~290-330 linii)
+-----------------------------------------------
+
+PLIK: TTesterLCD32.c
+
+SEKCJA 1: Dodaj bufor ramek i CRC (~40 linii)
+  
+  Lokalizacja: Po linii 128 (deklaracja buf[63])
+  
+  Dodaj zmienne:
+    unsigned char rxframe[8];      // Bufor ramki odbiorczej
+    unsigned char rxidx = 0;       // Biezacy indeks odbioru
+    unsigned char cmd_pending = 0; // Flaga gotowosci komendy binarnej
+    unsigned char cmd_type = 0;    // Typ ostatniej komendy dla async MEAS
+  
+  Dodaj funkcje CRC-8 (po int2asc() okolo linii 993):
+    unsigned char crc8(unsigned char *data, unsigned char len)
+    {
+      unsigned char crc = 0, i, j;
+      for (i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (j = 0; j < 8; j++) {
+          if (crc & 0x80)
+            crc = (crc << 1) ^ 0x07;
+          else
+            crc <<= 1;
+        }
+      }
+      return crc;
+    }
+
+SEKCJA 2: Zmodyfikuj przerwanie odbioru UART (~40 linii)
+  
+  Lokalizacja: Zastap funkcje usart_rxc() (linie 830-833)
+  
+  Nowa implementacja:
+    void usart_rxc(void)
+    {
+      unsigned char byte = UDR;
+      unsigned char i;
+      unsigned char err_response[8];
+      
+      // Tryb legacy ASCII: ESC wyzwala kopie LCD
+      if (byte == ESC) {
+        txen = 1;
+        return;
+      }
+      
+      // Protokol binarny: Buduj 8-bajtowa ramke
+      rxframe[rxidx] = byte;
+      rxidx++;
+      
+      if (rxidx >= 8) {
+        // Ramka kompletna, waliduj CRC
+        if (crc8(rxframe, 7) == rxframe[7]) {
+          cmd_pending = 1;  // Prawidlowa ramka gotowa
+        } else {
+          // Blad CRC - wyslij odpowiedz bledu natychmiast
+          err_response[0] = 0x82;        // Status ERROR
+          err_response[1] = rxframe[1];  // Echo INDEX (staranie sie)
+          err_response[2] = 0x03;        // Kod CRC_ERROR
+          err_response[3] = 0x00;
+          err_response[4] = 0x00;
+          err_response[5] = 0x00;
+          err_response[6] = 0x00;
+          err_response[7] = crc8(err_response, 7);
+          
+          // Wyslij odpowiedz bledu
+          for (i = 0; i < 8; i++) {
+            UDR = err_response[i];
+            busy = 1;
+            while(busy);
+          }
+        }
+        rxidx = 0;  // Reset dla nastepnej ramki
+      }
+    }
+
+SEKCJA 3: Dodaj dyspozytor komend (~150 linii)
+  
+  Lokalizacja: Nowa funkcja przed main(), okolo linii 995
+  
+  Funkcja: process_binary_cmd()
+  
+  Pseudokod:
+    void process_binary_cmd(void)
+    {
+      unsigned char ctrl = rxframe[0];
+      unsigned char cmd = (ctrl >> 6) & 0x03;
+      unsigned char target = (ctrl >> 5) & 0x01;
+      unsigned char index = rxframe[1];
+      unsigned char response[8];
+      
+      // Inicjalizuj odpowiedz
+      response[0] = 0x02;  // OK + REMOTE
+      response[1] = index;  // Echo INDEX
+      response[2] = response[3] = response[4] = 0;
+      response[5] = response[6] = 0;
+      
+      switch (cmd) {
+        case 0:  // SET
+          // Aplikacja desktopowa zawsze uzywa bit 5=1 (tryb SETTINGS)
+          // Dekoduj P1: zarzenie
+          unsigned char heat_idx = rxframe[2] & 0x0F;
+          // Mapuj HEAT_IDX na uhset/ihset
+          // (Implementacja zalezy od tablicy mapowania)
+          
+          // Dekoduj P2: UA
+          uaset = (unsigned int)rxframe[3] * 10;
+            
+            // Dekoduj P3: UG2
+            ug2set = (unsigned int)rxframe[4] * 10;
+            
+            // Dekoduj P4: UG1
+            ug1set = ug1ref - ((unsigned int)rxframe[5] * 5);
+            
+            // Dekoduj P5: TMEAS
+            tuh = (unsigned int)rxframe[6] * 2;  // jednostki 500ms
+          }
+          break;
+        
+        case 1:  // MEAS
+          if (start > 0 && start != (FUH+2)) {
+            response[0] = 0x41;  // BUSY
+          } else {
+            // Rozpocznij sekwencje pomiarowa
+            start = ...; // Ustaw odpowiednia wartosc start
+            stop = 1;
+            cmd_type = 1;  // Zapamietaj ze jestesmy w MEAS
+          }
+          break;
+        
+        case 2:  // READ
+          if (index == 0) {
+            // READ STATUS
+            response[0] = ...; // Biezacy stan
+            response[2] = err;
+            response[3] = (start >> 2) & 0xFF;  // Pozostaly czas
+            // ... wypelnij R3-R5 ostatnimi pomiarami
+          } else {
+            // Nieprawidlowe zadanie (INDEX musi byc 0 dla READ STATUS)
+            response[0] = 0x82;  // ERROR
+            response[2] = 0x04;  // INVALID_COMMAND
+          }
+          break;
+        
+        default:
+          response[0] = 0x82;  // ERROR
+          response[2] = 0x04;  // INVALID_COMMAND
+      }
+      
+      // Wyslij odpowiedz
+      send_binary_response(response);
+    }
+
+SEKCJA 4: Dodaj konstruktor odpowiedzi (~50 linii)
+  
+  Lokalizacja: Nowa funkcja, okolo linii 1100
+  
+  Funkcja: send_binary_response()
+  
+  Implementacja:
+    void send_binary_response(unsigned char *frame)
+    {
+      unsigned char i;
+      
+      // Oblicz CRC
+      frame[7] = crc8(frame, 7);
+      
+      // Wyslij wszystkie 8 bajtow
+      for (i = 0; i < 8; i++) {
+        UDR = frame[i];
+        busy = 1;
+        while(busy);
+      }
+    }
+
+SEKCJA 5: Punkty integracji (~20 linii)
+  
+  Lokalizacja 1: Glowna petla (okolo linii 1104)
+  Dodaj przed "if (sync == 1)":
+    if (cmd_pending) {
+      cmd_pending = 0;
+      process_binary_cmd();
+    }
+  
+  Lokalizacja 2: Po zakonczeniu pomiaru (linia 916)
+  Zmodyfikuj:
+    if( start == ... ) {
+      // Przechowaj wyniki w zmiennych LCD (istniejacy kod)
+      uhlcd = uh; ihlcd = ih; ... 
+      
+      // Jesli komenda binarna byla MEAS, wyslij wyniki
+      if (cmd_type == 1) {
+        unsigned char response[8];
+        response[0] = 0x02;  // OK
+        response[1] = typ;   // Biezacy indeks lampy
+        response[2] = ihlcd;
+        response[3] = ...; // Koduj ialcd
+        response[4] = ...; // Koduj ig2lcd
+        response[5] = ...; // Koduj slcd
+        response[6] = err;
+        send_binary_response(response);
+        cmd_type = 0;
+      }
+      
+      // Tryb ASCII nadal dziala
+      txen = 1;
+    }
+
+9.2 KOMPATYBILNOSC WSTECZNA
+----------------------------
+
+Strategia: Tryb podwojny (binarny + ASCII wspolistnieja)
+
+- Protokol binarny: Zawsze aktywny, przetwarza ramki automatycznie
+- Tryb ASCII: Znak ESC nadal wyzwala kopie LCD (zachowanie linii 832)
+- Nie jest potrzebne przelaczanie trybu
+- Oba moga byc uzywane jednoczesnie (np. binarny do sterowania, ASCII do debugowania)
+
+9.3 SLAD PAMIECI
+----------------
+
+Flash (pamiec programu):
+  + Funkcja CRC: ~40 bajtow
+  + Odbior ramek z odpowiedzia bledu: ~80 bajtow
+  + Dyspozytor komend: ~200 bajtow
+  + Konstruktor odpowiedzi: ~80 bajtow
+  + Integracja: ~40 bajtow
+  Lacznie: ~440 bajtow (1,4% z 32KB)
+
+RAM (pamiec danych):
+  + rxframe[8]: 8 bajtow
+  + cmd_pending, cmd_type, rxidx: 3 bajty
+  Lacznie: 11 bajtow (0,5% z 2KB)
+
+EEPROM: Bez zmian
+
+Wniosek: Znikomy wplyw na zasoby ATmega32
+
+9.4 PROCEDURA TESTOWANIA
+------------------------
+
+Faza 1: Odbior ramek i CRC
+  Test: Wyslij ramki z prawidlowym/nieprawidlowym CRC
+  Weryfikacja: cmd_pending ustawiane tylko przy prawidlowym CRC
+  Narzedzia: Terminal szeregowy z trybem hex
+
+Faza 2: Komenda SET
+  Test 2a: SET z katalogu (indeks 2, 10, 50)
+  Test 2b: SET z bezposrednimi parametrami
+  Weryfikacja: Zmienne wewnetrzne (uhset, uaset, itp.) zaktualizowane poprawnie
+  Narzedzia: Uzyj trybu ASCII aby odczytac wartosci z LCD
+
+Faza 3: Komenda MEAS
+  Test 3a: Pojedynczy pomiar (tryb CATALOG)
+  Test 3b: Pojedynczy pomiar (tryb SETTINGS)
+  Test 3c: Odrzuc MEAS gdy zajety
+  Weryfikacja: Ramka odpowiedzi wyslana po zakonczeniu pomiaru
+  Narzedzia: Oscyloskop na linii UART TX, zmierz timing
+
+Faza 4: Komenda READ
+  Test 4a: READ status podczas bezczynnosci/nagrzewania/pomiaru
+  Test 4b: READ wpisow katalogowych (ROM i EEPROM)
+  Test 4c: Nieprawidlowy indeks katalogowy
+  Weryfikacja: Odpowiedzi wieloramkowe poprawnie sformatowane
+  Narzedzia: Analizator szeregowy, porownaj z katalogiem w firmware
+
+Faza 5: Obsluga bledow
+  Test 5a: Wywolaj alarm nadpradowy (OVERIA)
+  Test 5b: Wywolaj alarm temperatury (OVERTE)
+  Test 5c: Wyslij nieprawidlowa komende
+  Weryfikacja: Odpowiednie odpowiedzi ERROR/ALARM
+  Narzedzia: Zasilacz laboratoryjny, sonda termiczna
+
+Faza 6: Curve tracing
+  Test 6a: Zmiataj Ua od 0-300V co 20V
+  Test 6b: Zmierz timing (powinno byc <100ms na punkt w trybie CURVE)
+  Test 6c: 100-punktowa krzywa charakterystyczna
+  Weryfikacja: Punkty danych tworza gladka krzywa
+  Narzedzia: Aplikacja desktopowa (podstawowy plotter), sprawna lampa
+
+Faza 7: Integracja
+  Test 7a: Rownoczesny READ podczas MEAS
+  Test 7b: Tryb ASCII nadal dziala (komenda ESC)
+  Test 7c: Rozszerzona operacja (1000+ komend)
+  Weryfikacja: Brak wyciekow pamieci, brak zawieszek
+  Narzedzia: Zautomatyzowany skrypt testowy
+
+================================================================================

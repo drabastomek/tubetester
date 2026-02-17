@@ -1,0 +1,177 @@
+================================================================================
+VTTester Protocol: Changes from v0.2 to v0.3
+================================================================================
+
+This document summarizes the differences between protocol version 0.2 and 0.3.
+It is intended so that a reader understands what changed and why, without
+having to compare two full specifications line by line.
+
+--------------------------------------------------------------------------------
+1. COMMANDS AND CTRL BYTE
+--------------------------------------------------------------------------------
+
+REMOVED: MEAS command
+  - In v0.2 the PC sent SET (load parameters) then MEAS (run measurement).
+  - In v0.3 there is no MEAS. SET both loads parameters and starts the
+    measurement. The meter sends the four DATA frames automatically when
+    the measurement completes; the PC does not send any command to "request"
+    the result.
+  - WHY: The flow is SET -> ACK (measurement starts) -> DATA (automatic).
+    A separate MEAS command was redundant. Curve tracing is just many SET
+    commands from the desktop app.
+
+ADDED: RESET (CTRL = 0x80 in v0.3)
+  - Purpose: Power down selected subcircuits in a defined order and clear alarm latch.
+  - Request: CTRL=0x80, INDEX=0, P1 = what to power down, P2-P5=0.
+  - P1: 0x01 = Ua, Ug2, Ug1 only (high-voltage rails). 0x02 = full power down
+    (Ua, Ug2, Ug1 and Uh), e.g. when swapping the tube.
+  - Response: 8-byte frame with status ACK (CTRL bits 7-6 = 00).
+  - WHY: So the PC can choose to power down only the rails (0x01) or
+    everything including the heater (0x02) without re-sending SET with zeros.
+
+RENAMED: READ -> STATUS (CTRL = 0x40 in v0.3)
+  - STATUS is optional. The PC does NOT need to send STATUS to get measurement
+    data: the meter sends the four DATA frames automatically when the
+    measurement (triggered by SET) completes.
+  - STATUS is used only to poll the meter (e.g. when a timeout expires) to
+    see if the meter is still BUSY or has finished.
+  - WHY: Clarifies that DATA frames are unsolicited; STATUS is for polling
+    only.
+
+CTRL BYTE (request) simplified: no curve mode, no bit 5
+  - v0.2: Bits 7-6 = CMD (SET, MEAS, READ, reserved), bit 5 = always 1
+    (SETTINGS), bit 4 = CURVE, bits 3-0 = reserved.
+  - v0.3: Only bits 7-6 are used for command. Bits 5-0 are reserved (0).
+    Commands: 00 = SET (0x00), 01 = STATUS (0x40), 10 = RESET (0x80), 11 = reserved.
+  - WHY: Curve tracing is handled entirely by the desktop app (many SETs);
+    no protocol-level "curve mode". Bit 5 (catalog vs settings) is not
+    needed in REMOTE-only protocol. Byte 1 remains INDEX (tube type + system).
+  - Response CTRL: bits 5-4 no longer echo request bits. Bit 5 is now used
+    for DATA (see below); bit 4 reserved (0). Status 00 is named ACK (not OK).
+
+RESPONSE CTRL: DATA (bit 5) and ACK (status 00)
+  - When the meter sends the four measurement frames, each frame has
+    STATUS = ACK (bits 7-6 = 00) and DATA = 1 (bit 5). So CTRL = 0x20 for
+    a DATA frame. This lets the PC distinguish a command ACK (bit 5 = 0)
+    from a measurement data frame (bit 5 = 1) without context.
+  - Status 00 (bits 7-6) is named ACK (command accepted; data valid) in v0.3.
+
+--------------------------------------------------------------------------------
+2. DATA FORMAT (BREAKING CHANGE)
+--------------------------------------------------------------------------------
+
+v0.2 MEAS result: ONE 8-byte frame (sent after MEAS command)
+  - R1 = Ih (index, 10 mA per step)
+  - R2 = Ia (index, 1 mA per step)
+  - R3 = Ig2 (index, 0.16 mA per step)
+  - R4 = S (transconductance index, 0.1 mA/V)
+  - R5 = Extended status (alarm bits 7-4; bits 3-0 reserved)
+  - R (anode resistance) and K (amplification factor) were not sent; PC
+    was expected to compute them from S and Ia/Ua.
+
+v0.3 DATA: FOUR consecutive 8-byte frames (raw values only), sent
+  automatically by the meter when the measurement (triggered by SET) completes.
+  Each frame has CTRL with STATUS = ACK and DATA bit = 1 (e.g. CTRL = 0x20).
+  - Frame 1: Uh, Ih (each 16-bit little-endian)
+  - Frame 2: Ua, Ug2 (each 16-bit little-endian)
+  - Frame 3: Ia, Ig2 (each 16-bit little-endian)
+  - Frame 4: Ug1 (16-bit magnitude), alarm byte (bits 7-4)
+  - S, R, and K are NOT sent. The PC computes them from raw voltages and
+    currents.
+
+WHY this change:
+  - The meter does not regulate Ua/Ug2 to exact setpoints; actual voltages
+    differ from requested. Sending raw Uh, Ih, Ua, Ia, Ug2, Ig2, Ug1 allows
+    the PC to compute characteristics and S, R, K accurately from actual
+    conditions.
+  - Index-based encoding (e.g. Ia in 1 mA steps) was limiting and did not
+    match the firmware’s internal resolution. Raw values with explicit
+    scales (e.g. 0.01 mA for Ia) give the desktop app full resolution and
+    a single, clear interpretation.
+  - Four fixed 8-byte frames keep the protocol simple (no variable-length
+    or 20-byte extended frame) while carrying all seven quantities plus
+    alarm.
+
+Ug1 encoding:
+  - v0.2: P4 and response used index-based encoding for grid 1 (negative).
+  - v0.3 DATA frame 4: Ug1 is sent as a uint16 magnitude; physical voltage
+    is -(value/100) V (e.g. 2400 = -24.00 V). This matches a simple
+    magnitude scale and avoids sign handling in the binary frame.
+
+--------------------------------------------------------------------------------
+3. RESET SEMANTICS (NEW)
+--------------------------------------------------------------------------------
+
+  - P1 selects what to power down: 0x01 = Ua, Ug2, Ug1 only; 0x02 = those
+    plus Uh (full power down, e.g. when swapping the tube).
+  - Power-down order: Ua, then Ug2, then Ug1; if P1=0x02, then Uh.
+  - RESET also clears the alarm latch and stops an in-progress measurement.
+  - WHY: Protects the tube and the tester by defining a single, safe
+    sequence; P1 lets the PC power down only the rails (0x01) or everything (0x02).
+
+--------------------------------------------------------------------------------
+4. MEASUREMENT FLOW DESCRIPTION
+--------------------------------------------------------------------------------
+
+  - v0.2: SET (params), MEAS (run), ACK, then result frame when done.
+  - v0.3: SET (params) -> ACK (measurement starts automatically) ->
+    [optionally STATUS to poll, e.g. on timeout] -> four DATA frames
+    (sent automatically by the meter) -> RESET. No MEAS command. Curve
+    tracing is just many SETs from the desktop app.
+  - WHY: Single, clear flow; DATA frames are always unsolicited; STATUS
+    is only for optional polling, not for requesting measurement data.
+
+--------------------------------------------------------------------------------
+5. REMOVED OR SIMPLIFIED
+--------------------------------------------------------------------------------
+
+  - No "single measurement" vs "multi measurement" mode distinction in the
+    flow; there is one measurement sequence.
+  - No 20-byte extended frame; only the four 8-byte DATA frames.
+  - Section numbering and some "rationale" blocks from v0.2 are not
+    repeated in v0.3; the v0.3 document is a single, self-contained
+    specification.
+
+--------------------------------------------------------------------------------
+6. ALARM BITS
+--------------------------------------------------------------------------------
+
+  - v0.2 used bits 0-3 for alarm detail in some places (OVERIH, OVERIA,
+    OVERIG, OVERTE) and bits 7-4 in R5.
+  - v0.3 DATA: alarm in frame 4, byte 5, bits 7-4 only (OVERTE,
+    OVERIG, OVERIA, OVERIH). Bits 3-0 reserved (0).
+  - WHY: One consistent placement (DATA frame 4) and one consistent
+    bit layout for alarms in the result.
+
+--------------------------------------------------------------------------------
+7. ERROR CODES
+--------------------------------------------------------------------------------
+
+  - Unchanged in meaning. v0.3 uses the same R1 codes (e.g. OUT_OF_RANGE,
+    CRC_ERROR, INVALID_CMD, HARDWARE). Names are normalized (e.g.
+    INVALID_COMMAND -> INVALID_CMD) where they appear in the spec.
+
+--------------------------------------------------------------------------------
+8. BACKWARD COMPATIBILITY
+--------------------------------------------------------------------------------
+
+  - v0.3 is NOT backward compatible with v0.2: no MEAS command; SET
+    starts the measurement; the meter sends four DATA frames (CTRL bit 5 = 1)
+    automatically; status 00 is ACK; CTRL request codes and bits changed
+    (0x00 SET, 0x40 STATUS, 0x80 RESET; no curve bit, no bit 5). A v0.2
+    client expecting MEAS and one 8-byte result will not interoperate with v0.3.
+  - Version agreement (e.g. by build or handshake) is required.
+
+--------------------------------------------------------------------------------
+9. DOCUMENT STRUCTURE
+--------------------------------------------------------------------------------
+
+  - v0.3 is written as one standalone specification. It does not say
+    "unchanged from v0.2" or "same as v0.2"; all needed definitions are
+    in the single document so implementors do not need to open v0.2.
+  - For a concise list of changes and reasons, use this diff and the
+    CHANGELOG.
+
+================================================================================
+END OF DIFF (v0.2 -> v0.3)
+================================================================================
