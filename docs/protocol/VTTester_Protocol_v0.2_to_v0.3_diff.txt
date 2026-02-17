@@ -81,7 +81,7 @@ v0.3 DATA: FOUR consecutive 8-byte frames (raw values only), sent
 
 WHY this change:
   - The meter does not regulate Ua/Ug2 to exact setpoints; actual voltages
-    differ from requested. Sending raw Uh, Ih, Ua, Ia, Ug2, Ig2, Ug1 allows
+    may differ from requested. Sending raw Uh, Ih, Ua, Ia, Ug2, Ig2, Ug1 allows
     the PC to compute characteristics and S, R, K accurately from actual
     conditions.
   - Index-based encoding (e.g. Ia in 1 mA steps) was limiting and did not
@@ -127,7 +127,6 @@ Ug1 encoding:
 
   - No "single measurement" vs "multi measurement" mode distinction in the
     flow; there is one measurement sequence.
-  - No 20-byte extended frame; only the four 8-byte DATA frames.
   - Section numbering and some "rationale" blocks from v0.2 are not
     repeated in v0.3; the v0.3 document is a single, self-contained
     specification.
