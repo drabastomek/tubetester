@@ -64,23 +64,6 @@ void cstr2rs( const char* q )
 }
 
 
-void zersrk( void )                         // zeruj S, R, K
-{
-   s = r = k = ualcd = ialcd = ug2lcd = ig2lcd = slcd = rlcd = klcd = 0;
-}
-
-uint16_t liczug1( uint16_t pug1 )                // przelicz Ug1
-{
-   uint32_t acc = 640000UL;
-   uint32_t sub = 1024000UL;
-   acc *= vref;
-   sub *= pug1;                                   /* ug1 */
-   acc -= sub;
-   acc /= 725;
-   acc /= vref;
-   return (uint16_t)acc;          /* 882..193..55 */
-}
-
 //*************************************************************************
 //                 O B S L U G A   P R Z E R W A N
 //*************************************************************************
