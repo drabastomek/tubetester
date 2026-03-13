@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <avr/eeprom.h>
 
+
+// ALL DEFINES GO HERE
 #ifndef F_CPU
 #define F_CPU 16000000UL
 #endif
@@ -97,6 +99,7 @@
 #define EVENT_RING_SIZE   32
 #define UART_RX_RING_SIZE 8
 
+// GLOBAL VARIABLES DEFINITIONS GO HERE
 /* Shared type: tube catalog entry */
 typedef struct
 {
@@ -138,8 +141,6 @@ extern katalog lamprem, lamptem;
 
 extern uint8_t AZ[37];
 
-// /* Map byte to AZ index 0..36 (defined in config.c, declared here for main) */
-// extern uint8_t az_index(uint8_t c);
 
 /* PROGMEM / EEMEM data defined in config.c */
 extern const katalog lamprom[];   /* lamprom[FLAMP] in config.c */
@@ -148,5 +149,16 @@ extern uint16_t poptyp;          /* EEMEM in config.c */
 
 // /* Cyrillic CGRAM glyphs (defined in config.c) */
 extern char cyrZ[8], cyrG[8], cyrB[8], cyrD[8], cyrI[8], cyrP[8], cyrC[8], cyrF[8];
+
+// FUNCTION PROTOTYPES GO HERE
+void configure_ports(void);
+void configure_processor(void);
+void configure_timer(void);
+void configure_pwm(void);
+void configure_adc(void);
+void configure_uart(void);
+void initilize_watchdog(void);
+void initilize_interrupts(void);
+
 
 #endif /* CONFIG_H */

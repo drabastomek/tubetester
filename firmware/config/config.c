@@ -16,7 +16,6 @@ uint8_t
    nodus, dusk0,
    zapisz, czytaj,
    range, rangelcd, rangedef,
-//    ascii[5],
    channel,
    takt,
    overih, overia, overig2, err, errcode,
@@ -24,8 +23,6 @@ uint8_t
    pwm,
    anode,
    irx, tout, crc;
-//    bufin[10],
-//    buf[64] = { 0 };
 
 volatile uint16_t
    *wart, wartmin, wartmax,
@@ -59,15 +56,6 @@ uint8_t AZ[37] =
 { 'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z','_','0','1','2','3','4','5','6','7','8','9' };
 // //00  01  02  03  04  05  06  07  08  09  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24  25  26  27  28  29  30  31  32  33  34  35  36
 
-// /* Map byte to AZ index 0..36 so AZ[] is never indexed out of bounds (avoids 0xFF from OOB read -> filled block on LCD). */
-// uint8_t az_index(uint8_t c)
-// {
-//    if (c <= 36u) return c;
-//    if (c >= 'A' && c <= 'Z') return (uint8_t)(c - 'A');
-//    if (c == '_') return 26u;
-//    if (c >= '0' && c <= '9') return (uint8_t)(27u + (c - '0'));
-//    return 26u;
-// }
 
 const katalog lamprom[FLAMP] PROGMEM = {
 {{'P','W','R','S','U','P',' ', 28,' '},  0,  0,240,  0,   0,  0,   0,  0,  0,   0 },
@@ -610,3 +598,53 @@ katalog
 { {15, 28, 26, 26, 26, 26,  9, 27, 28 },  0,  0,  0,  0,   0,  0,   0,  0,  0,   0 },
 { {15, 29, 26, 26, 26, 26,  9, 27, 28 },  0,  0,  0,  0,   0,  0,   0,  0,  0,   0 }
 };
+
+void configure_ports(void) {
+	//***** Konfiguracja portow ***********************************
+                            //   7   6   5   4   3   2   1   0
+                            // UG1 IG2 UG2  IA  UA  UH  IH REZ
+   DDRA  = 0x00;            //   0   0   0   0   0   0   0   0
+   PORTA = 0x00;            //   0   0   0   0   0   0   0   0
+                            //  D7  D6  D5  K1  UH CKG SEL RNG
+   DDRB  = 0x0f;            //   0   0   0   0   1   1   1   1
+   PORTB = 0xf0;            //   1   1   1   1   0   0   0   0
+                            //  D7  D6  D5  D4  ENA RS SDA SCL
+   DDRC  = 0xfc;            //   1   1   1   1   1   1   0   0
+   PORTC = 0x03;            //   0   0   0   0   0   0   1   1
+                            // SPK DIR UG2  UA CLK  K0 TXD RXD
+   DDRD  = 0xb2;            //   1   0   1   1   0   0   1   0
+   PORTD = 0x4f;            //   0   1   0   0   1   1   1   1
+}
+
+void configure_processor(void) {
+	ACSR = BIT(ACD);                       // wylacz komparator
+}
+void configure_timer(void) {
+	TCCR2 = BIT(FOC2)|BIT(WGM21)|BIT(CS22);  // FOC2/CTC,XTAL/64
+	OCR2  = MS1;                                           // 1ms
+}
+void configure_pwm(void) {
+	TCCR0  = BIT(WGM01)|BIT(WGM00)|BIT(CS00); // FAST,XTAL, OC0 odlaczone
+	TCCR1A = BIT(COM1A1)|BIT(COM1B1);                    // PWM
+	TCCR1B = BIT(WGM13)|BIT(CS10);      // PHASE+FREQ,ICR1,XTAL
+}
+void configure_adc(void) {
+	ADMUX = ADRUG1;
+	ADCSRA = BIT(ADEN)|BIT(ADSC)|BIT(ADATE)|BIT(ADIF)|BIT(ADIE)|BIT(ADPS2)|BIT(ADPS1)|BIT(ADPS0);
+}
+void configure_uart(void) {
+	UBRRL = RATE;                             // ustaw szybkosc
+	UCSRB = BIT(RXCIE)|BIT(RXEN)|BIT(TXCIE)|BIT(TXEN);
+	UCSRC = BIT(URSEL)|BIT(UCSZ1)|BIT(UCSZ0);
+}
+
+void initilize_watchdog(void) {
+	WDTCR = BIT(WDE);
+	WDTCR = BIT(WDE)|BIT(WDP2)|BIT(WDP1);
+	WDR;
+}
+void initilize_interrupts(void) {
+	MCUCR = BIT(ISC11);                       // INT1 na zboczu
+	TIMSK = BIT(OCIE2);                               // T2 CTC
+	GIFR = BIT(INTF1);                  // skasuj znacznik INT1
+}

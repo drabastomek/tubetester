@@ -8,14 +8,14 @@ TARGET  = TTesterLCD32_avr
 BINDIR  = bin
 ELF     = $(BINDIR)/$(TARGET).elf
 HEX     = $(BINDIR)/$(TARGET).hex
-OBJ     = $(BINDIR)/TTesterLCD32.o $(BINDIR)/config.o $(BINDIR)/utils.o $(BINDIR)/display.o $(BINDIR)/interrupts.o
+OBJ     = $(BINDIR)/TTesterLCD32.o $(BINDIR)/config.o $(BINDIR)/utils.o $(BINDIR)/display.o $(BINDIR)/interrupts.o $(BINDIR)/communication.o
 
 CC      = avr-gcc
 OBJCOPY = avr-objcopy
 SIZE    = avr-size
 
 CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL -Os -Wall -Wextra -g
-CFLAGS += -I. -Iconfig -Iutils -Idisplay -Iinterrupts
+CFLAGS += -I. -Iconfig -Iutils -Idisplay -Iinterrupts -Icommunication
 CFLAGS += -funsigned-char
 CFLAGS += -ffunction-sections -fdata-sections
 LDFLAGS = -Wl,--gc-sections
@@ -47,6 +47,9 @@ $(BINDIR)/display.o: display/display.c display/display.h | $(BINDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BINDIR)/interrupts.o: interrupts/interrupts.c interrupts/interrupts.h | $(BINDIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BINDIR)/communication.o: communication/communication.c communication/communication.h | $(BINDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(HEX): $(ELF)
