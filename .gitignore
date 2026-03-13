@@ -1,0 +1,15 @@
+# Build
+*.elf
+*.hex
+*.o
+*.d
+
+# Editor / OS
+.DS_Store
+*.swp
+*~
+
+# Python
+__pycache__/
+.pytest_cache/
+*.pyc
