@@ -16,6 +16,7 @@
 #include "config/config.h"
 #include "utils/utils.h"
 #include "display/display.h"
+#include "interrupts/interrupts.h"
 
 // MINIMAL globals here
 uint8_t
@@ -70,18 +71,9 @@ void cstr2rs( const char* q )
 //*************************************************************************
 
 /* Event ring: ISRs push event bits, main drains and dispatches */
-#define EVENT_TIMER2      0x01
-#define EVENT_INT1        0x02
-#define EVENT_UART_TXC    0x04
-#define EVENT_UART_RXC    0x08
-#define EVENT_RING_SIZE   32
-#define UART_RX_RING_SIZE 8
 static volatile uint8_t  event_ring[EVENT_RING_SIZE];
 static volatile uint8_t  event_head = 0, event_tail = 0;
 
-/* UART RX byte ring: ISR pushes UDR here, handler pops (one byte per EVENT_UART_RXC) */
-static volatile uint8_t  uart_rx_ring[UART_RX_RING_SIZE];
-static volatile uint8_t  uart_rx_head = 0, uart_rx_tail = 0;
 
 static inline void event_push(uint8_t ev)
 {
@@ -93,523 +85,11 @@ static inline void event_push(uint8_t ev)
    }
 }
 
-static void int1_handler(void)
-{
-   if( start > (TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2) )
-   {
-      if( nodus == DMIN )
-      {
-         start = (TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2);  // wylaczanie kreciolkiem
-         stop = 0;
-      }
-   }
-   else
-   {
-      if( start == (FUH+2) )
-      {
-         if( dusk0 == DMAX )
-         {
-            if( RIGHT )
-            {
-               if( (nowa == 1) && ((lamptem.nazwa[7] == '1') || (lamptem.nazwa[7] == 28)) ) { typ++; nowa = 0; }
-            }
-            else
-            {
-               if( (nowa == 1) && ((lamptem.nazwa[7] == '2') || (lamptem.nazwa[7] == 29)) ) { typ--; nowa = 0; }
-            }
-            zersrk();
-         }
-         if( nodus == DMIN )
-         {
-            start = (FUH+1);
-         }
-      }
-      else
-      {
-         if( start == 0 )
-         {
-            if( adr == 0 )                          // edycja numeru
-            {
-               wartmin = 0;
-               wartmax = (FLAMP+ELAMP-1); // PWRSUP+REMOTE+FLASH+EEPROM
-               wart = &typ;
-            }
-            if( (adr > 0) && (adr < 7) )                 // edycja nazwy
-            {
-               cwartmin = 0;
-               cwartmax = 36;
-               cwart = &lamptem.nazwa[adr-1];
-            }
-            if( adr == 7 )              // zmiana nr podstawki zarzenia
-            {
-               cwartmin = 0;
-               cwartmax = 9;
-               cwart = &lamptem.nazwa[6];
-            }
-            if( adr == 8 )                // zmiana nr systemu elektrod
-            {
-               if( typ == 0 )
-               {
-                  cwartmin = 28;
-               }
-               else
-               {
-                  cwartmin = 27;
-               }
-               cwartmax = 29;
-               cwart = &lamptem.nazwa[7];
-            }
-            if( adr == 9 )                 // ustawianie czasu zarzenia
-            {
-               cwartmin = 28;
-               cwartmax = 36;
-               cwart = &lamptem.nazwa[8];
-            }
-            if( adr == 10 )                         // ustawianie Ug1
-            {
-               cwartmin = (typ == 0)? 0: 5;          // 0.5 lub 0
-               cwartmax = (typ == 0)? 240: 235;      // -23.5 lub -24.0V
-               cwart = &lamptem.ug1def;
-            }
-            if( adr == 11 )                         // ustawianie Uh
-            {
-               cwartmin = 0;
-               cwartmax = 200;                           // 0..20.0V
-               cwart = &lamptem.uhdef;
-            }
-            if( adr == 12 )                         // ustawianie Ih
-            {
-               cwartmin = 0;
-               cwartmax = 250;                     // 0..2.50A
-               cwart = &lamptem.ihdef;
-            }
-            if( adr == 13 )                         // ustawianie Ua
-            {
-               wartmin = (typ == 0)? 0: 10;
-               wartmax = (typ == 0)? 300: 290;     // 0..300V
-               wart = &lamptem.uadef;
-            }
-            if( adr == 14 )                         // ustawianie Ia
-            {
-               wartmin = 0;
-               wartmax = 2000;                      // 0..200.0mA
-               wart = &lamptem.iadef;
-            }
-            if( adr == 15 )                        // ustawianie Ug2
-            {
-               wartmin = 0;
-               wartmax = 300;                       // 0..300V
-               wart = &lamptem.ug2def;
-            }
-            if( adr == 16 )                         // ustawianie Ig2
-            {
-               wartmin = 0;
-               wartmax = 4000;                      // 0..40.00mA
-               wart = &lamptem.ig2def;
-            }
-            if( adr == 17 )                        // ustawianie S
-            {
-               wartmin = 0;
-               wartmax = 999;                         // 99.9
-               wart = &lamptem.sdef;
-            }
-            if( adr == 18 )                        // ustawianie R
-            {
-               wartmin = 0;
-               wartmax = 999;                      // 99.9
-               wart = &lamptem.rdef;
-            }
-            if( adr == 19 )                        // ustawianie K
-            {
-               wartmin = 0;
-               wartmax = 9999;                       // 9999
-               wart = &lamptem.kdef;
-            }
+ISR(INT1_vect) { event_push(EVENT_INT1); }
+ISR(USART_TXC_vect) { event_push(EVENT_UART_TXC); }
+ISR(TIMER2_COMP_vect) { event_push(EVENT_TIMER2); }
 
-            if( RIGHT )
-            {
-               if( (adr > 0) && (adr < 13) )
-               {
-                  if( dusk0 == DMAX )
-                  {
-                     if( (*cwart) < cwartmax ) { (*cwart)++; }
-                  }
-               }
-               else
-               {
-                  if( dusk0 == DMAX )
-                  {
-                     if( (*wart) < wartmax ) { (*wart)++; } else { if( adr == 0 ) { (*wart) = 0; } }
-                  }
-               }
-               if( nodus == DMIN )
-               {
-                  if( typ == 0 ) // PWRSUP
-                  {
-                     if( adr < 15 ) { adr++; } // nie dojezdzaj do Ig2
-                     if( adr == 14 ) { adr = 15; } // przeskocz Ia
-                     if( adr == 9 ) { adr = 10; } // przeskocz czas zarzenia
-                     if( adr == 1 ) { adr = 8; } // 8 przeskocz nazwe i podstawke
-                  }
-                  if( typ >= FLAMP ) // katalog zmienny
-                  {
-                     if( adr < 19 ) { adr++; }
-                  }
-               }
-            }
-            else
-            {
-               if( (adr > 0) && (adr < 13) )
-               {
-                  if( dusk0 == DMAX )
-                  {
-                     if( (*cwart) > cwartmin ) { (*cwart)--; }
-                  }
-               }
-               else
-               {
-                  if( dusk0 == DMAX )
-                  {
-                     if( (*wart) > wartmin ) { (*wart)--; } else { if( adr == 0 ) { (*wart) = (FLAMP+ELAMP-1); } }
-                  }
-               }
-               if( (nodus == DMIN) && (adr > 0) )
-               {
-                  if( typ >= FLAMP ) { adr--; }
-                  if( typ == 0 )
-                  {
-                     if( adr > 0 ) { adr--; }
-                     if( adr == 7 ) { adr = 0; stop = 0; start = (TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2); } // przeskocz nazwe / wylaczenie
-                     if( adr == 9 ) { adr = 8; } // przeskocz nazwe i podstawke
-                     if( adr == 14 ) { adr = 13; } // pomin Ia
-                  }
-               }
-            }
-         }
-      }
-   }
-}
-
-ISR(INT1_vect)
-{
-   event_push(EVENT_INT1);
-}
-
-ISR(ADC_vect)
-{
-   switch( kanal )
-   {
-      case 0:
-      {
-         srezadc += ADC;
-         kanal = 1;
-         CLKUG1SET;
-         ADMUX = ADRIH;
-         break;
-      }
-      case 1:
-      {
-         kanal = 2;
-         if( ADC >= ug1set ) { CLKUG1RST; }
-         ADMUX = ADRUG1;
-         break;
-      }
-      case 2:
-      {
-         adcih = ADC;
-         sihadc += adcih;
-         kanal = 3;
-         CLKUG1SET;
-         ADMUX = ADRUH;
-//***** Zabezpieczenie nadpradowe Ih **************************
-         if( adcih > 400 )
-         {
-            if( overih > 0 )
-            {
-               overih--;
-            }
-            else
-            {
-               uhset = ihset = 0;
-               err |= OVERIH;
-            }
-         }
-         else
-         {
-            overih = OVERSAMP;
-         }
-         break;
-      }
-      case 3:
-      {
-         kanal = 4;
-         if( ADC >= ug1set ) { CLKUG1RST; }
-         ADMUX = ADRUG1;
-         break;
-      }
-      case 4:
-      {
-         suhadc += ADC;
-         kanal = 5;
-         CLKUG1SET;
-         ADMUX = ADRUA;
-         break;
-      }
-      case 5:
-      {
-         kanal = 6;
-         if( ADC >= ug1set ) { CLKUG1RST; }
-         ADMUX = ADRUG1;
-         break;
-      }
-      case 6:
-      {
-         suaadc += ADC;
-         kanal = 7;
-         CLKUG1SET;
-         ADMUX = ADRIA;
-         break;
-      }
-      case 7:
-      {
-         kanal = 8;
-         if( ADC >= ug1set ) { CLKUG1RST; }
-         ADMUX = ADRUG1;
-         break;
-      }
-      case 8:
-      {
-         adcia = ADC;
-         siaadc += adcia;
-         kanal = 9;
-         CLKUG1SET;
-         ADMUX = ADRUG2;
-//***** Zabezpieczenie nadpradowe Ia ***************************
-         if( (range != 0) && (adcia >= 1020) )
-         {
-            if( overia > 0 )
-            {
-               overia--;
-            }
-            else
-            {
-               uaset = ug2set = 0;
-               PWMUA = PWMUG2 = 0;;
-               err |= OVERIA;
-            }
-         }
-         else
-         {
-            overia = OVERSAMP;
-         }
-//***** Wystawienie Ua ****************************************
-         if( PWMUA < uaset ) PWMUA++;
-         if( PWMUA > uaset ) PWMUA--;
-//***** Ustawianie wysokiego zakresu pomiarowego Ia ***********
-         if( (range == 0) && (adcia > 950) )
-         {
-            range = 1;
-            SET200;
-         }
-//***** Ustawianie niskiego zakresu pomiarowego Ia ************
-         if( ((err & OVERIA) == 0) && (range != 0) && (adcia < 85) )
-         {
-            range = 0;
-            RST200;
-         }
-         break;
-      }
-      case 9:
-      {
-         kanal = 10;
-         if( ADC >= ug1set ) { CLKUG1RST; }
-         ADMUX = ADRUG1;
-         break;
-      }
-      case 10:
-      {
-         sug2adc += ADC;
-         kanal = 11;
-         CLKUG1SET;
-         ADMUX = ADRIG2;
-         break;
-      }
-      case 11:
-      {
-         kanal = 12;
-         if( ADC >= ug1set ) { CLKUG1RST; }
-         ADMUX = ADRUG1;
-         break;
-      }
-      case 12:
-      {
-         adcig2 = ADC;
-         sig2adc += adcig2;
-         kanal = 13;
-         CLKUG1SET;
-         ADMUX = ADRREZ;
-//***** Zabezpieczenie nadpradowe Ig2 **************************
-         if( adcig2 >= 1020 )
-         {
-            if( overig2 > 0 )
-            {
-               overig2--;
-            }
-            else
-            {
-               ug2set = 0;
-               PWMUG2 = 0;
-               err |= OVERIG;
-            }
-         }
-         else
-         {
-            overig2 = OVERSAMP;
-         }
-//***** Wystawienie Ug2 ***************************************
-         if( PWMUG2 < ug2set ) PWMUG2++;
-         if( PWMUG2 > ug2set ) PWMUG2--;
-         break;
-      }
-      case 13:
-      {
-         sug1adc += ADC;
-         kanal = 0;
-         if( ADC >= ug1set ) { CLKUG1RST; }
-         ADMUX = ADRUG1;
-         if( probki == LPROB )
-         {
-            mrezadc = srezadc;
-            mihadc = sihadc;
-            muhadc = suhadc;
-            muaadc = suaadc;
-            miaadc = siaadc;
-            mug2adc = sug2adc;
-            mig2adc = sig2adc;
-            mug1adc = sug1adc;
-            srezadc = sihadc = suhadc = suaadc = siaadc = sug2adc = sig2adc = sug1adc = 0;
-            probki = 0;
-//***** Szybkie wylaczenie Uh *********************************
-            if( (uhset == 0) && (ihset == 0) )
-               pwm = 0;
-            else
-            {
-               TCCR0 |= BIT(COM01);               // dolacz OC0
-//***** Stabilizacja Uh ***************************************
-               if( uhset > 0 )
-               {
-                  lint = muhadc;
-                  lint *= vref;
-                  lint >>= 14;        //  /= 16384;                // 0..200
-                  tint = mihadc;   // poprawka na spadek napiecia na boczniku
-                  tint *= vref;
-                  tint >>= 16;        //  /= 65536;
-                  if( lint > tint ) { lint -= tint; } else { lint = 0; }
-                  lint /= 10;
-                  if( (uhset > (uint16_t)lint) && (pwm < 255) ) { pwm++; }
-                  if( (uhset < (uint16_t)lint) && (pwm >   0) ) { pwm--; }
-               }
-//***** Stabilizacja Ih ***************************************
-               if( ihset > 0 )
-               {
-                  lint = mihadc;
-                  lint *= vref;
-                  lint >>= 15;    //   /= 32768;
-                  if( (ihset > (uint16_t)lint) )
-                  {
-                     if( (pwm < 8) || ((mihadc > 32) && (pwm < 255)) ) { pwm++; } // Uh<0.5V lub Ih>5mA
-                  }
-                  if( (ihset < (uint16_t)lint) && (pwm >   0) ) { pwm--; }
-               }
-            }
-            if( pwm == 0 )
-            {
-               TCCR0 &= ~BIT(COM01);                        // odlacz OC0
-            }
-            else
-            {
-               TCCR0 |= BIT(COM01);                          // dolacz OC0
-            }
-            PWMUH = pwm;
-//***** Ustawianie/kasowanie znacznika przegrzania ************
-            if( mrezadc > HITEMP ) err |= OVERTE;
-            if( mrezadc < LOTEMP ) err &= ~OVERTE;
-         }
-         else
-         {
-            probki++;
-         }
-         break;
-      }
-   }
-// NOP;
-}
-
-static void uart_txc_handler(void)
-{
-   busy = 0;
-}
-
-static void uart_rxc_handler(void)
-{
-   uint8_t b;
-   if ( uart_rx_tail == uart_rx_head ) return;   /* no byte queued */
-   b = uart_rx_ring[uart_rx_tail];
-   uart_rx_tail = (uart_rx_tail + 1) % UART_RX_RING_SIZE;
-
-   if( typ == 1 )
-   {
-      bufin[irx] = b;
-      if( irx < 9 )
-      {
-         irx++;
-      }
-      else
-      {
-         bufinta = bufin[6]; bufinta <<= 8; bufinta += bufin[5];
-         bufintg2 = bufin[8]; bufintg2 <<= 8; bufintg2 += bufin[7];
-         crc = 0;
-        //  for( irx = 0; irx < 8; irx++ ) crc = CRC8TABLE[ crc ^ bufin[irx]];
-
-         bufin[9] = crc; // !!!
-
-         if( (((uint16_t)(bufin[6])<<8) + bufin[5]) > 300 ) NOP;
-
-         if( !((bufin[0] != ESC)||
-              ((bufin[1] != 28)&&(bufin[1] != 29))||
-               (bufin[2] > 240)||
-               (bufin[3] > 200)||
-               (bufin[4] > 250)||
-              ((bufin[3] !=0 ) && (bufin[4] !=0 ))||
-               (bufinta > 300)||
-               (bufintg2 > 300 )||
-               (bufin[9]!=crc)) ) // crc)) ) !!!
-         {
-            lamprem.nazwa[7] = bufin[1];
-            ug1set = liczug1( lamprem.ug1def = bufin[2] );
-            uhset = lamprem.uhdef = bufin[3];
-            ihset = lamprem.ihdef = bufin[4];
-            uaset = lamprem.uadef = bufinta;
-            ug2set = lamprem.ug2def = bufintg2;
-         }
-         irx = 0;
-         txen = 1;
-      }
-      tout = MS250; // zeruj odliczanie czasu od ostatniego
-   }
-   else
-   {
-      if( b == ESC ) { txen = 1; }
-   }
-}
-
-ISR(USART_TXC_vect)
-{
-   event_push(EVENT_UART_TXC);
-}
-
-ISR(USART_RXC_vect)
-{
+ISR(USART_RXC_vect) {
    uint8_t next = (uart_rx_head + 1) % UART_RX_RING_SIZE;
    if ( next != uart_rx_tail )
    {
@@ -619,118 +99,54 @@ ISR(USART_RXC_vect)
    }
 }
 
-static void timer2_tick_handler(void)
+
+/*
+ * ADC round-robin (14 slots, channel 0..13)
+ * -----------------------------------------
+ * The ADC runs in auto-trigger mode: each conversion completion fires ADC_vect.
+ * When we enter the ISR with channel=K, the value in ADC is the result of the
+ * conversion that just finished. That conversion was for the MUX we set when
+ * we last left the ISR (i.e. when channel was K-1, or 13 when K=0). So the
+ * result is always one slot behind: we are now processing the channel we
+ * selected in the previous iteration.
+ *
+ * This ISR only (1) captures ADC and channel for the handler, (2) advances
+ * the round-robin by setting the next ADMUX and channel, and (3) pushes
+ * EVENT_ADC. All accumulation, limits, and PWM updates run in adc_handler()
+ * in the main loop (interrupts.c).
+ *
+ * Slot (channel) → physical input we set when leaving that slot:
+ *   0→IH  1→UG1  2→UH  3→UG1  4→UA  5→UG1  6→IA  7→UG1
+ *   8→UG2 9→UG1 10→IG2 11→UG1 12→REZ 13→UG1
+ * So the result we get when entering with channel=K is from the slot above
+ * for K-1 (or 13 when K=0). UG1 is sampled every other slot for the ug1set
+ * comparison and CLKUG1 toggling; the others are the main signals for
+ * accumulation and control.
+ */
+ISR(ADC_vect)
 {
-   if( zwloka != 0 ) { zwloka--; }
-   if( tout > 1 ) { tout--; }
-   if( tout == 1 ) { tout = 0; irx = 0; crc = 0; }
-   if( anode == 29 ) SETSEL; else RSTSEL;
+   adc_result = ADC;
+   adc_channel = channel;
 
-   if( DUSK0 )
+   switch ( channel )
    {
-      if( dusk0 < DMAX ) { dusk0++; } else { nodus = 0; }
+      case  0: channel =  1; CLKUG1SET; ADMUX = ADRIH;   break;
+      case  1: channel =  2; if ( adc_result >= ug1set ) CLKUG1RST; ADMUX = ADRUG1; break;
+      case  2: channel =  3; CLKUG1SET; ADMUX = ADRUH;   break;
+      case  3: channel =  4; if ( adc_result >= ug1set ) CLKUG1RST; ADMUX = ADRUG1; break;
+      case  4: channel =  5; CLKUG1SET; ADMUX = ADRUA;   break;
+      case  5: channel =  6; if ( adc_result >= ug1set ) CLKUG1RST; ADMUX = ADRUG1; break;
+      case  6: channel =  7; CLKUG1SET; ADMUX = ADRIA;   break;
+      case  7: channel =  8; if ( adc_result >= ug1set ) CLKUG1RST; ADMUX = ADRUG1; break;
+      case  8: channel =  9; CLKUG1SET; ADMUX = ADRUG2;  break;
+      case  9: channel = 10; if ( adc_result >= ug1set ) CLKUG1RST; ADMUX = ADRUG1; break;
+      case 10: channel = 11; CLKUG1SET; ADMUX = ADRIG2;  break;
+      case 11: channel = 12; if ( adc_result >= ug1set ) CLKUG1RST; ADMUX = ADRUG1; break;
+      case 12: channel = 13; CLKUG1SET; ADMUX = ADRREZ;  break;
+      case 13: channel =  0; if ( adc_result >= ug1set ) CLKUG1RST; ADMUX = ADRUG1; break;
    }
-   else
-   {
-      if( nodus < DMIN )
-      {
-         nodus++;
-      }
-      else
-      {
-         if( (dusk0 > DMIN) && (dusk0 < DMAX) )
-         {
-            if( (typ > 1) && (err == 0) )
-            {
-               if( (start == 0) && (adr == 0) )   // start
-               {
-                  start = (tuh+(TUG+TUA+TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2));
-                  stop = 1;                 // stop po zakonczeniu pomiaru
-                  zersrk();
-               }
-               if( start == (FUH+2) ) // restart
-               {
-                  start = (TUG+TUA+TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2); // ponowny pomiar
-                  stop = 1;                    // stop po zakonczeniu pomiaru
-                  zersrk();
-               }
-            }
-         }
-         dusk0 = 0;
-      }
-   }
-   dziel++;
-   if( dziel >= MRUG )
-   {
-      dziel = 0;
-      sync = 1;
-      if( start == (tuh+(TUG+TUA+TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) )
-      {
-         if( lamptem.uhdef != 0)
-         {
-            uhset = lamptem.uhdef;
-            ihset = lamptem.ihdef = 0;
-         }
-         if( lamptem.ihdef != 0)
-         {
-            ihset = lamptem.ihdef;
-            uhset = lamptem.uhdef = 0;
-         }
-      }
-      if( start == (    (TUG+TUA+TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) )
-      {
-         if( (lamptem.nazwa[7] == '2') || (lamptem.nazwa[7] == 29) ) { anode = 29; } // anoda 2
-         ug1set = ug1ref - 11; // UgR
-      }
-      if( start == (    (    TUA+TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) )
-      {
-         uaset = lamptem.uadef;
-      }
-      if( start == (    (        TUG2+TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { ug2set = lamptem.ug2def; }
 
-// wystaw Uh/Ih   UgR   Ua   Ug2            UgL          Ug   UaL           UaR          Ua              Ug2    Ua   Ug   Uh/Ih   SPKON     [SPKOFF]     SPKON      SPKOFF STOP Tx
-// czekaj      tuh   TUG  TUA   TUG2    TMAR   TUG   TMAR  TUG   TUA    TMAR   TUA   TMAR  TUA       TMAR   FUG2  FUA  FUG     FUH     BEEP-0      BEEP-1     BEEP-2      2    1  0
-// czytaj                           IagR          IagL              IaaL          IaaR        Ug2/Ig2
-// oblicz                                          S                               R      K
-
-      if( start == (    (             TMAR+TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { ugr = ug1; iar = (range==0)?ia:ia*10; } // IagR
-      if( start == (    (                  TUG+TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { ug1set = ug1ref + 11; } // UgL
-      if( start == (    (                      TMAR+TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { ugl = ug1; ial = (range==0)?ia:ia*10; if( iar != ial ) { ial -= iar; ugr -= ugl; s = ial; s /= ugr; } else s = 999; } // IagL S
-      if( start == (    (                           TUG+TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { ug1set = ug1ref; } // Ug
-      if( start == (    (                               TUA+TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { uaset = lamptem.uadef - 10; } // UaL
-      if( start == (    (                                   TMAR+TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { ual = ua; ial = (range==0)?ia:ia*10; } // IaaL
-      if( start == (    (                                        TUA+TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { uaset = lamptem.uadef + 10; } // UaR
-      if( start == (    (                                            TMAR+TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { uar = ua; iar = (range==0)?ia:ia*10; if( iar != ial ) { uar -= ual; uar *= 1000; iar -= ial; r = uar; r /= iar; } else r = 999; } // IaaR R
-      if( start == (    (                                                 TUA+TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { uaset = lamptem.uadef; lint = s; lint *= r; lint += 50; lint /= 100; if( lint < 9999 ) { k = (uint16_t)lint; } else k = 9999; } // K=R*S
-      if( start == (    (                                                     TMAR+FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { uhlcd = uh; ihlcd = ih; ug1lcd = ug1; ualcd = ua; ialcd = ia; rangelcd = range; ug2lcd = ug2; ig2lcd = ig2; slcd = s; rlcd = r; klcd = k; txen = 1; }
-      if( start == (    (                                                          FUG2+FUA+FUG+(BIP-0)+FUH+2)) ) { ug2set = 0; if( typ == 0 ) lamptem.ug2def = 0; }
-      if( start == (    (                                                               FUA+FUG+(BIP-0)+FUH+2)) ) { uaset = 0; if( typ == 0 ) lamptem.uadef = 0; }
-      if( start == (    (                                                                   FUG+(BIP-0)+FUH+2)) ) { ug1set = ug1zer; anode = 28; }
-      if( start == (    (                                                                       (BIP-0)+FUH+2)) ) { if( stop != 0 ) SPKON; }
-      if( start == (    (                                                                       (BIP-1)+FUH+2)) ) { if( err != 0 ) { SPKOFF; uhset = ihset = 0; if( typ == 0 ) { lamptem.uhdef = lamptem.ihdef = 0; } } } // alarm - wylacz tez zarzenie
-      if( start == (    (                                                                       (BIP-2)+FUH+2)) ) { if( stop != 0 ) SPKON; }
-      if( start == (    (                                                                       (BIP-3)+FUH+2)) ) { SPKOFF; }
-      if( start == (    (                                                                               FUH+1)) ) { uhset = ihset = 0; if( typ == 0 ) { lamptem.uhdef = lamptem.ihdef = 0; } }
-      if( start == (    (                                                                                   1)) ) { err = 0; zersrk(); }
-
-      takt++;
-      takt &= 0x03;
-      if( (takt == 2) && (dusk0 == DMAX) ) takt = 0;
-
-      if( start == (FUH+2) )
-      {
-         if( stop == 0 ) start = (FUH+1);
-      }
-      else
-      {
-         if( start > 0 ) { start--; }
-      }
-   }
-}
-
-ISR(TIMER2_COMP_vect)
-{
-   event_push(EVENT_TIMER2);
+   event_push(EVENT_ADC);
 }
 
 
@@ -855,6 +271,7 @@ int main(void)
          if ( ev & EVENT_INT1     ) int1_handler();
          if ( ev & EVENT_UART_TXC ) uart_txc_handler();
          if ( ev & EVENT_UART_RXC ) uart_rxc_handler();
+         if ( ev & EVENT_ADC      ) adc_handler();
       }
       WDR;
       if ( sync == 1 )

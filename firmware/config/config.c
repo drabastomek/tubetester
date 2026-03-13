@@ -17,7 +17,7 @@ uint8_t
    zapisz, czytaj,
    range, rangelcd, rangedef,
 //    ascii[5],
-   kanal,
+   channel,
    takt,
    overih, overia, overig2, err, errcode,
    probki,

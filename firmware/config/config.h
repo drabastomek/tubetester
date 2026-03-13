@@ -88,6 +88,14 @@
 #define FUH     2
 #define BIP     4
 
+// RING BUFFER for interrupts
+#define EVENT_TIMER2      0x01
+#define EVENT_INT1        0x02
+#define EVENT_UART_TXC    0x04
+#define EVENT_UART_RXC    0x08
+#define EVENT_ADC         0x10
+#define EVENT_RING_SIZE   32
+#define UART_RX_RING_SIZE 8
 
 /* Shared type: tube catalog entry */
 typedef struct
@@ -108,10 +116,11 @@ typedef struct
 /* Globals defined in config.c (declared here for TTesterLCD32.c) */
 extern uint8_t d, i, busy, sync, txen, *cwart, cwartmin, cwartmax;
 extern uint8_t adr, adrmin, adrmax, nowa, stop, zwloka, dziel, nodus, dusk0;
-extern uint8_t zapisz, czytaj, range, rangelcd, rangedef, kanal, takt;
+extern uint8_t zapisz, czytaj, range, rangelcd, rangedef, channel, takt;
 extern uint8_t overih, overia, overig2, err, errcode, probki, pwm, anode;
 extern uint8_t irx, tout, crc;
-// bufin[10], ascii[5], buf[64];
+extern uint8_t bufin[10];
+/* ascii[5], buf[64] in main only */
 
 extern volatile uint16_t *wart, wartmin, wartmax, start, tuh, vref;
 extern volatile uint16_t adcih, adcia, adcig2;
