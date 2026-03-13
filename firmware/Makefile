@@ -3,19 +3,19 @@
 
 MCU     = atmega32
 F_CPU   = 16000000
-SRC     = TTesterLCD32.c config/config.c
+SRC     = TTesterLCD32.c config/config.c config/catalog.c
 TARGET  = TTesterLCD32_avr
 BINDIR  = bin
 ELF     = $(BINDIR)/$(TARGET).elf
 HEX     = $(BINDIR)/$(TARGET).hex
-OBJ     = $(BINDIR)/TTesterLCD32.o $(BINDIR)/config.o
+OBJ     = $(BINDIR)/TTesterLCD32.o $(BINDIR)/config.o $(BINDIR)/utils.o
 
 CC      = avr-gcc
 OBJCOPY = avr-objcopy
 SIZE    = avr-size
 
 CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL -Os -Wall -Wextra -g
-CFLAGS += -I. -Iconfig
+CFLAGS += -I. -Iconfig -Iutils
 CFLAGS += -funsigned-char
 CFLAGS += -ffunction-sections -fdata-sections
 LDFLAGS = -Wl,--gc-sections
@@ -38,6 +38,9 @@ $(BINDIR)/TTesterLCD32.o: TTesterLCD32.c config/config.h | $(BINDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BINDIR)/config.o: config/config.c config/config.h | $(BINDIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BINDIR)/utils.o: utils/utils.c utils/utils.h | $(BINDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(HEX): $(ELF)

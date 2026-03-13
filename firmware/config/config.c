@@ -25,7 +25,7 @@ uint8_t
    anode,
    irx, tout, crc;
 //    bufin[10],
-//    buf[64] = { 0 };   /* explicit init so first display is spaces, not garbage/0xFF */
+//    buf[64] = { 0 };
 
 volatile uint16_t
    *wart, wartmin, wartmax,

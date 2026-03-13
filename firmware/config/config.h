@@ -2,62 +2,11 @@
 #define CONFIG_H
 
 #include <stdint.h>
-// #include <avr/eeprom.h>
+#include <avr/eeprom.h>
 
 #ifndef F_CPU
 #define F_CPU 16000000UL
 #endif
-
-/* Shared type: tube catalog entry */
-typedef struct
-{
-   uint8_t nazwa[9];
-   uint8_t uhdef;
-   uint8_t ihdef;
-   uint8_t ug1def;
-   uint16_t  uadef;
-   uint16_t  iadef;
-   uint16_t  ug2def;
-   uint16_t  ig2def;
-   uint16_t  sdef;
-   uint16_t  rdef;
-   uint16_t  kdef;
-} katalog;
-
-/* Globals defined in config.c (declared here for TTesterLCD32.c) */
-extern uint8_t d, i, busy, sync, txen, *cwart, cwartmin, cwartmax;
-extern uint8_t adr, adrmin, adrmax, nowa, stop, zwloka, dziel, nodus, dusk0;
-extern uint8_t zapisz, czytaj, range, rangelcd, rangedef, kanal, takt;
-extern uint8_t overih, overia, overig2, err, errcode, probki, pwm, anode;
-extern uint8_t irx, tout, crc;
-// bufin[10], ascii[5], buf[64];
-
-extern volatile uint16_t *wart, wartmin, wartmax, start, tuh, vref;
-extern volatile uint16_t adcih, adcia, adcig2;
-extern volatile uint16_t uhset, ihset, ug1set, uaset, iaset, ug2set, ig2set;
-extern volatile uint16_t suhadc, sihadc, sug1adc, suaadc, siaadc, sug2adc, sig2adc;
-extern volatile uint16_t muhadc, mihadc, mug1adc, muaadc, miaadc, mug2adc, mig2adc;
-extern volatile uint16_t ug1zer, ug1ref, uh, ih, ua, ual, uar, ia, ial, iar;
-extern volatile uint16_t ug2, ig2, ug1, ugl, ugr, s, r, k, typ, lastyp;
-extern volatile uint16_t uhlcd, ihlcd, ug1lcd, ualcd, ialcd, ug2lcd, ig2lcd, slcd, rlcd, klcd;
-extern volatile uint16_t srezadc, mrezadc, bufinta, bufintg2;
-
-extern uint32_t lint, tint, licz, temp;
-
-extern katalog lamprem, lamptem;
-
-extern uint8_t AZ[37];
-
-// /* Map byte to AZ index 0..36 (defined in config.c, declared here for main) */
-// extern uint8_t az_index(uint8_t c);
-
-/* PROGMEM / EEMEM data defined in config.c */
-extern const katalog lamprom[];   /* lamprom[FLAMP] in config.c */
-extern katalog lampeep[];        /* lampeep[ELAMP] EEMEM in config.c */
-extern uint16_t poptyp;          /* EEMEM in config.c */
-
-// /* Cyrillic CGRAM glyphs (defined in config.c) */
-extern char cyrZ[8], cyrG[8], cyrB[8], cyrD[8], cyrI[8], cyrP[8], cyrC[8], cyrF[8];
 
 /* EEPROM helpers (macros defined in config.c; declare here so main can use after including avr/eeprom.h) */
 #ifndef EEPROM_READ
@@ -138,5 +87,57 @@ extern char cyrZ[8], cyrG[8], cyrB[8], cyrD[8], cyrI[8], cyrP[8], cyrC[8], cyrF[
 #define FUG     2
 #define FUH     2
 #define BIP     4
+
+
+/* Shared type: tube catalog entry */
+typedef struct
+{
+   uint8_t nazwa[9];
+   uint8_t uhdef;
+   uint8_t ihdef;
+   uint8_t ug1def;
+   uint16_t  uadef;
+   uint16_t  iadef;
+   uint16_t  ug2def;
+   uint16_t  ig2def;
+   uint16_t  sdef;
+   uint16_t  rdef;
+   uint16_t  kdef;
+} katalog;
+
+/* Globals defined in config.c (declared here for TTesterLCD32.c) */
+extern uint8_t d, i, busy, sync, txen, *cwart, cwartmin, cwartmax;
+extern uint8_t adr, adrmin, adrmax, nowa, stop, zwloka, dziel, nodus, dusk0;
+extern uint8_t zapisz, czytaj, range, rangelcd, rangedef, kanal, takt;
+extern uint8_t overih, overia, overig2, err, errcode, probki, pwm, anode;
+extern uint8_t irx, tout, crc;
+// bufin[10], ascii[5], buf[64];
+
+extern volatile uint16_t *wart, wartmin, wartmax, start, tuh, vref;
+extern volatile uint16_t adcih, adcia, adcig2;
+extern volatile uint16_t uhset, ihset, ug1set, uaset, iaset, ug2set, ig2set;
+extern volatile uint16_t suhadc, sihadc, sug1adc, suaadc, siaadc, sug2adc, sig2adc;
+extern volatile uint16_t muhadc, mihadc, mug1adc, muaadc, miaadc, mug2adc, mig2adc;
+extern volatile uint16_t ug1zer, ug1ref, uh, ih, ua, ual, uar, ia, ial, iar;
+extern volatile uint16_t ug2, ig2, ug1, ugl, ugr, s, r, k, typ, lastyp;
+extern volatile uint16_t uhlcd, ihlcd, ug1lcd, ualcd, ialcd, ug2lcd, ig2lcd, slcd, rlcd, klcd;
+extern volatile uint16_t srezadc, mrezadc, bufinta, bufintg2;
+
+extern uint32_t lint, tint, licz, temp;
+
+extern katalog lamprem, lamptem;
+
+extern uint8_t AZ[37];
+
+// /* Map byte to AZ index 0..36 (defined in config.c, declared here for main) */
+// extern uint8_t az_index(uint8_t c);
+
+/* PROGMEM / EEMEM data defined in config.c */
+extern const katalog lamprom[];   /* lamprom[FLAMP] in config.c */
+extern katalog lampeep[];        /* lampeep[ELAMP] EEMEM in config.c */
+extern uint16_t poptyp;          /* EEMEM in config.c */
+
+// /* Cyrillic CGRAM glyphs (defined in config.c) */
+extern char cyrZ[8], cyrG[8], cyrB[8], cyrD[8], cyrI[8], cyrP[8], cyrC[8], cyrF[8];
 
 #endif /* CONFIG_H */
