@@ -31,7 +31,5 @@ void update_ig2(void);
 void update_s(void);
 void update_r(void);
 void update_k(void);
-void update_t(void);
-
 
 #endif
