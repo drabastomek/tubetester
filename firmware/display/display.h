@@ -14,7 +14,7 @@ void char2lcd(uint8_t highlight, uint8_t c);     /* display character */
 void cstr2lcd(uint8_t highlight, const char* c); /* display string */
 void cstr2lcd_P(uint8_t highlight, PGM_P p);     /* display string from flash */
 void str2lcd(uint8_t f, uint8_t* c);             /* display string */
-void int2asc( uint8_t liczba, uint8_t *ascii);   /* convert integer to ASCII */
+void int2asc( uint16_t liczba, uint8_t *ascii);   /* convert integer to ASCII (0..9999) */
 void send_cyrillic_chars(void);                  /* send cyrillic characters to LCD */
 void show_splash(void);                          /* show splash screen */
 void update_display(void);                       /* update display */

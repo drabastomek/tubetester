@@ -97,13 +97,14 @@ void str2lcd( uint8_t f, uint8_t* c )
    }
 }
 
-void int2asc( uint8_t liczba, uint8_t *ascii)
+void int2asc( uint16_t liczba, uint8_t *ascii)
 {
-   uint8_t i, temp;
+   uint8_t i;
+   uint8_t temp;
 
    for( i = 0; i < 4; i++ )
    {
-      temp = liczba % 10;
+      temp = (uint8_t)(liczba % 10);
       liczba /= 10;
       ascii[i] = '0' + temp;
    }
