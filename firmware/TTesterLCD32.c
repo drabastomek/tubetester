@@ -69,8 +69,9 @@ ISR(USART_RXC_vect) {
  * Slot (channel) → physical input we set when leaving that slot:
  *   0→IH  1→UG1  2→UH  3→UG1  4→UA  5→UG1  6→IA  7→UG1
  *   8→UG2 9→UG1 10→IG2 11→UG1 12→REZ 13→UG1
- * So the result we get when entering with channel=K is from the slot above
- * for K-1 (or 13 when K=0). UG1 is sampled every other slot for the ug1set
+ * So when we enter with channel=K, the result we have is from slot K-1 (or 13 when K=0):
+ *   K=0→UG1 K=1→IH K=2→UG1 K=3→UH K=4→UG1 K=5→UA K=6→UG1 K=7→IA
+ *   K=8→UG1 K=9→UG2 K=10→UG1 K=11→IG2 K=12→UG1 K=13→REZ UG1 is sampled every other slot for the ug1set
  * comparison and CLKUG1 toggling; the others are the main signals for
  * accumulation and control.
  */
