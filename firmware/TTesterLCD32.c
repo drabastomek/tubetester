@@ -126,7 +126,7 @@ int main(void)
    anode = 28;
    irx = 0;
    tout = MS250; // zeruj odliczanie czasu od ostatniego rx
-   lamprem = lamprom[1]; // wstepnie z flasha
+   memcpy_P(&lamprem, &lamprom[1], sizeof(lamprem)); // wstepnie z flasha
    memcpy_P(&lamptem, &lamprom[typ], sizeof(lamptem));
    wartmin = 0;
    wartmax = (ELAMP+FLAMP-1);  // wszystkie lampy

@@ -253,7 +253,7 @@ void update_name_and_number(void) {
             
             if( (typ != lastyp) && (start != (FUH+2)) ) // zmiana typu, poza restartem
             {
-               lamprem = lamprom[1]; // kazdy inny kasuje dane remote
+               memcpy_P(&lamprem, &lamprom[1], sizeof(lamprem)); // kazdy inny kasuje dane remote
                anode = 28;
                ug1set = ug1zer = ug1ref = liczug1( 240 );    // -24.0V
                uhset = ihset = uaset = ug2set = 0;
