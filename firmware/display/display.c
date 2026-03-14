@@ -46,8 +46,8 @@ void char2lcd( uint8_t highlight, uint8_t c )
 {
    /* Never send 0x00 (CGRAM 0) or 0xFF (full block) to LCD - can look like "filled squares" from bad/uninit data */
    if (c == 0x00 || c == 0xFF) c = ' ';
-   (void)highlight;
-   cmd2lcd(1, c);
+   /* ICCAVR cursor: when field is highlighted and takt==0, show space so highlighted field blinks */
+   cmd2lcd(1, ((highlight == 1) && (takt == 0)) ? ' ' : c);
 }
 
 void cstr2lcd( uint8_t highlight, const char* c )
@@ -92,7 +92,6 @@ void str2lcd( uint8_t f, uint8_t* c )
    uint8_t ch;
    while( (ch = *c) != 0 )
    {
-      if ( ch == 0xFF ) ch = ' ';   /* avoid full block on LCD (e.g. bad/external buf) */
       char2lcd( f, ch );
       c++;
    }
