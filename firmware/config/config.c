@@ -2,24 +2,30 @@
 
 void configure_processor(void)
 {
+	ACSR = BIT(ACD); /* wylacz komparator — same as full firmware */
 }
 
 void configure_ports(void)
 {
-	/* ATmega32 UART: PD1 = TX (out), PD0 = RX (in) — breadboard / CP2102 */
-	DDRD |= (1 << PD1);
-	DDRD &= ~(1 << PD0);
-	PORTD |= (1 << PD0); /* optional pull-up on RX */
+	/****** Konfiguracja portow (same as full firmware / main) ***********************************/
+	/*                        7   6   5   4   3   2   1   0
+	                          UG1 IG2 UG2  IA  UA  UH  IH REZ */
+	DDRA  = 0x00;
+	PORTA = 0x00;
+	/*                        D7  D6  D5  K1  UH CKG SEL RNG */
+	DDRB  = 0x0f;
+	PORTB = 0xf0;
+	/*                        D7  D6  D5  D4  ENA RS SDA SCL */
+	DDRC  = 0xfc;
+	PORTC = 0x03;
+	/*                        SPK DIR UG2  UA CLK  K0 TXD RXD */
+	DDRD  = 0xb2;
+	PORTD = 0x4f;
 }
 
 void configure_uart(void)
 {
-	UBRRL = (uint8_t)RATE;
-#if defined(URSEL)
-	UCSRC = (1 << URSEL) | (1 << UCSZ1) | (1 << UCSZ0); /* 8N1 */
-#else
-	UCSRC = (1 << UCSZ1) | (1 << UCSZ0);
-#endif
-	/* Polling harness: no RX/TX interrupts */
-	UCSRB = (1 << RXEN) | (1 << TXEN);
+	UBRRL = RATE;
+	UCSRB = BIT(RXCIE) | BIT(RXEN) | BIT(TXCIE) | BIT(TXEN);
+	UCSRC = BIT(URSEL) | BIT(UCSZ1) | BIT(UCSZ0);
 }
