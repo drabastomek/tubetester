@@ -1,27 +1,25 @@
-# VTTester firmware — avr-gcc build
-# Output: firmware/bin/*.elf, *.hex
+# comms-testing — UART harness only (communication/ + minimal config).
+# Friend’s full tree replaces config/ and this main; keep communication/ as the shared API.
 
-MCU     = atmega32
+MCU     = atmega32a
 F_CPU   = 16000000
-SRC     = TTesterLCD32.c config/config.c config/catalog.c
-TARGET  = TTesterLCD32_avr
+TARGET  = comms_test_avr
 BINDIR  = bin
 ELF     = $(BINDIR)/$(TARGET).elf
 HEX     = $(BINDIR)/$(TARGET).hex
-OBJ     = $(BINDIR)/TTesterLCD32.o $(BINDIR)/config.o $(BINDIR)/utils.o $(BINDIR)/display.o $(BINDIR)/interrupts.o $(BINDIR)/communication.o
+OBJ     = $(BINDIR)/TTesterLCD32.o $(BINDIR)/config.o $(BINDIR)/communication.o
 
 CC      = avr-gcc
 OBJCOPY = avr-objcopy
 SIZE    = avr-size
 
 CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL -Os -Wall -Wextra -g
-CFLAGS += -I. -Iconfig -Iutils -Idisplay -Iinterrupts -Icommunication
+CFLAGS += -I. -Iconfig -Icommunication
 CFLAGS += -funsigned-char
 CFLAGS += -ffunction-sections -fdata-sections
 LDFLAGS = -Wl,--gc-sections
 
-.PHONY: all clean size flash flash-slow hex
-DEFAULT_GOAL := all
+.PHONY: all clean size flash flash-slow probe chip-prep read-fuses hex
 
 all: $(ELF)
 
@@ -34,19 +32,10 @@ $(ELF): $(OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJ)
 	@$(SIZE) $@
 
-$(BINDIR)/TTesterLCD32.o: TTesterLCD32.c config/config.h | $(BINDIR)
+$(BINDIR)/TTesterLCD32.o: TTesterLCD32.c config/config.h communication/communication.h | $(BINDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BINDIR)/config.o: config/config.c config/config.h | $(BINDIR)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-$(BINDIR)/utils.o: utils/utils.c utils/utils.h | $(BINDIR)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-$(BINDIR)/display.o: display/display.c display/display.h | $(BINDIR)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-$(BINDIR)/interrupts.o: interrupts/interrupts.c interrupts/interrupts.h | $(BINDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BINDIR)/communication.o: communication/communication.c communication/communication.h | $(BINDIR)
@@ -59,11 +48,16 @@ size: $(ELF)
 	$(SIZE) $(ELF)
 
 flash: $(HEX)
-	avrdude -p $(MCU) -c usbasp -P usb -B 2 -U flash:w:$(HEX):i
+	avrdude -p $(MCU) -c usbasp -P usb -B 8 -U flash:w:$(HEX):i
 
-# Slower clock if "target does not answer" (long wires / marginal connection)
-flash-slow: $(HEX)
-	avrdude -p $(MCU) -c usbasp -P usb -B 32 -U flash:w:$(HEX):i
+probe:
+	avrdude -p $(MCU) -c usbasp -P usb -B 32 -F -v
+
+chip-prep:
+	avrdude -p $(MCU) -c usbasp -P usb -B 32 -U lfuse:w:0x3F:m -U hfuse:w:0xCF:m
+
+read-fuses:
+	avrdude -p $(MCU) -c usbasp -P usb -B 32 -U lfuse:r:-:h -U hfuse:r:-:h
 
 clean:
 	rm -f $(ELF) $(HEX) $(OBJ)

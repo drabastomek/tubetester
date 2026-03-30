@@ -3,6 +3,7 @@
 *.hex
 *.o
 *.d
+firmware/bin/
 
 # Editor / OS
 .DS_Store
