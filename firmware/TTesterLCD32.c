@@ -1,7 +1,6 @@
 /*
- * comms-testing harness — UART only (breadboard + USB-serial e.g. CP2102).
- * configure_ports / configure_processor / configure_uart match full firmware;
- * minimal USART ISRs so RXCIE/TXCIE are safe without the rest of the app.
+ * comms-testing harness — VTTester protocol v0.4 (binary) on USART.
+ * ISRs stay here; communication layer is byte-oriented (comm_rx_byte).
  */
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -11,13 +10,11 @@
 
 ISR(USART_TXC_vect)
 {
-	/* Full firmware pushes EVENT_UART_TXC; harness has nothing to chain. */
 }
 
 ISR(USART_RXC_vect)
 {
-	uint8_t b = UDR;
-	char2rs(b);
+	comm_rx_byte(UDR);
 }
 
 int main(void)
@@ -25,11 +22,22 @@ int main(void)
 	configure_processor();
 	configure_ports();
 	configure_uart();
+	comm_init();
+
+	/* Drain RX FIFO (noise); USART ISRs are still masked until sei(). */
+	while (UCSRA & (1 << RXC))
+		(void)UDR;
+
+	/*
+	 * Send debug line before sei(): with RXCIE/TXCIE on, ISR latency can
+	 * otherwise interfere with polling TX. Build: make COMMS_DEBUG_BOOT=1
+	 */
+#ifdef COMMS_DEBUG_BOOT
+	cstr2rs("comms v0.4 binary\r\n");
+#endif
 
 	sei();
 
-	cstr2rs("comms-test ready\r\n");
-
 	for (;;)
-		;
+		comm_tx_poll();
 }

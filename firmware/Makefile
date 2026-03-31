@@ -19,6 +19,11 @@ CFLAGS += -funsigned-char
 CFLAGS += -ffunction-sections -fdata-sections
 LDFLAGS = -Wl,--gc-sections
 
+# Optional ASCII line on boot so screen/minicom shows life (binary protocol is otherwise silent).
+ifeq ($(COMMS_DEBUG_BOOT),1)
+CFLAGS += -DCOMMS_DEBUG_BOOT
+endif
+
 .PHONY: all clean size flash flash-slow probe chip-prep read-fuses hex
 
 all: $(ELF)
@@ -49,6 +54,9 @@ size: $(ELF)
 
 flash: $(HEX)
 	avrdude -p $(MCU) -c usbasp -P usb -B 8 -U flash:w:$(HEX):i
+
+flash-slow: $(HEX)
+	avrdude -p $(MCU) -c usbasp -P usb -B 32 -U flash:w:$(HEX):i
 
 probe:
 	avrdude -p $(MCU) -c usbasp -P usb -B 32 -F -v
