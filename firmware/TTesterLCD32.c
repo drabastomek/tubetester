@@ -1,6 +1,6 @@
 /*
- * comms-testing harness — VTTester protocol v0.4 (binary) on USART.
- * ISRs stay here; communication layer is byte-oriented (comm_rx_byte).
+ * comms-testing harness — VTTester protocol v0.4.1 (binary, 9-byte frames) on USART.
+ * ISRs stay here; communication layer is byte-oriented (comm_receive_byte).
  */
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -14,7 +14,7 @@ ISR(USART_TXC_vect)
 
 ISR(USART_RXC_vect)
 {
-	comm_rx_byte(UDR);
+	comm_receive_byte(UDR);
 }
 
 int main(void)
@@ -29,15 +29,14 @@ int main(void)
 		(void)UDR;
 
 	/*
-	 * Send debug line before sei(): with RXCIE/TXCIE on, ISR latency can
-	 * otherwise interfere with polling TX. Build: make COMMS_DEBUG_BOOT=1
+	 * Send debug line before sei()
 	 */
 #ifdef COMMS_DEBUG_BOOT
-	cstr2rs("comms v0.4 binary\r\n");
+	comm_transmit_string("comms v0.4.1 binary\r\n");
 #endif
 
 	sei();
 
 	for (;;)
-		comm_tx_poll();
+		comm_handle_requests();
 }

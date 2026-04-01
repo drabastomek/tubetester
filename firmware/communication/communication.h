@@ -23,11 +23,15 @@
 #define VTT_RESET_UA_UG2_UG1 0x01u
 #define VTT_RESET_FULL       0x02u
 
-/* INDEX (v0.4 §5): tube (7-4), system (3-1), heater parallel=0 / series=1 (bit 0) */
+/* INDEX (v0.4.1 §5): tube (7-4), system (3-1), heater parallel=0 / series=1 (bit 0) */
 #define VTT_IDX_HEATER_SERIES 0x01u
 #define VTT_IDX_SYSTEM_MASK   0x0Eu
 
-/** One on-wire v0.4 frame (8 bytes); field order matches protocol byte 0..7. */
+/** Wire frame size (protocol v0.4.1 §2). */
+#define VTT_FRAME_BYTES 9u
+#define VTT_UA_UG2_MAX 0x0FFFu
+
+/** One on-wire v0.4.1 frame (9 bytes): CTRL, INDEX, P1..P6, CRC (byte 8). */
 typedef struct
 {
 	uint8_t ctrl;
@@ -37,12 +41,11 @@ typedef struct
 	uint8_t p3;
 	uint8_t p4;
 	uint8_t p5;
+	uint8_t p6;
 	uint8_t crc;
 } frame_t;
 
-
-
-/* Table: CRC-8 poly 0x07, init 0 (v0.4 §2.2) */
+/* Table: CRC-8 poly 0x07, init 0 (v0.4.1 §2.2) */
 
 static const uint8_t CRC8TABLE[256] = {
 	0, 94, 188, 226, 97, 63, 221, 131, 194, 156, 126, 32, 163, 253, 31, 65,
@@ -63,18 +66,25 @@ static const uint8_t CRC8TABLE[256] = {
 	116, 42, 200, 150, 21, 75, 169, 247, 182, 232, 10, 84, 215, 137, 107, 53
 };
 
-/** CRC-8 poly 0x07 over bytes 0..6; compare to byte 7 of frame. */
-uint8_t vtt_crc8(const uint8_t *frame07);
+/** CRC-8 poly 0x07 over bytes 0..7; compare to byte 8 of frame. */
+uint8_t comm_checksum(const uint8_t *frame08);
 
 void comm_init(void);
 
-/** Feed one RX byte (e.g. from USART ISR); do not call comm_tx_poll from ISR. */
-void comm_rx_byte(uint8_t b);
+/** Feed one RX byte (e.g. from USART ISR); do not call comm_handle_requests from ISR. */
+void comm_receive_byte(uint8_t b);
 
-/** Main loop: process staged host request + drain outgoing frames on UART (TX). */
-void comm_tx_poll(void);
+/**
+ * Main loop: host CRC error reply, then handle one staged RX frame (handle_request),
+ * then drain the outgoing queue on UART (TX).
+ */
+void comm_handle_requests(void);
 
-extern void char2rs(uint8_t bajt);
-extern void cstr2rs(const char *q);
+/**
+ * Blocking USART TX helpers (default UART on avr/io.h names, e.g. ATmega32).
+ * Used by comm_handle_requests; exposed for harness / debug output.
+ */
+void comm_transmit_byte(uint8_t b);
+void comm_transmit_string(const char *s);
 
 #endif

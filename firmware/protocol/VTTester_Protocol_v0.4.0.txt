@@ -1,0 +1,312 @@
+================================================================================
+VTTester Communication Protocol - Version 0.4
+Desktop Application <--> Firmware Binary Protocol (REMOTE Mode Only)
+================================================================================
+
+================================================================================
+1. SCOPE
+================================================================================
+
+The protocol is used between a desktop application (PC) and the tube tester
+firmware in REMOTE mode. All frames are binary. The PC does not access the
+hardware catalog on the device; tube types and parameters are sent in each
+SET. Parameters set via SET are not saved to EEPROM by the device.
+
+================================================================================
+2. FRAME STRUCTURE
+================================================================================
+
+2.1 STANDARD FRAME (8 BYTES)
+----------------------------
+
+ Byte | Field      | Description
+------|------------|--------------------------------------------------
+  0   | CTRL       | Command or response code plus flags
+  1   | INDEX      | Tube type and system, or echo of request INDEX
+  2   | P1/R1      | Parameter 1 or Response field 1
+  3   | P2/R2      | Parameter 2 or Response field 2
+  4   | P3/R3      | Parameter 3 or Response field 3
+  5   | P4/R4      | Parameter 4 or Response field 4
+  6   | P5/R5      | Parameter 5 or Response field 5
+  7   | CRC        | CRC-8 checksum of bytes 0-6
+
+2.2 CRC-8
+---------
+  Algorithm: CRC-8 with polynomial 0x07 (x^8 + x^2 + x + 1)
+  Initial value: 0x00
+  Final XOR: 0x00
+  Input: bytes 0-6 of the frame. Byte 7 holds the CRC.
+
+  Table-driven implementation is recommended (256-byte lookup table). Same
+  algorithm as in v0.2; see diff or v0.2 document for the table if needed.
+
+  On CRC mismatch the receiver must not act on the frame. The firmware
+  responds with an ERROR frame (R1 = CRC_ERROR) so the PC can retry.
+
+================================================================================
+3. CTRL BYTE - PC TO FIRMWARE (REQUEST)
+================================================================================
+
+  Bit layout:
+    7   6   5   4   3   2   1   0
+  [  CMD   ][   RESERVED (0)    ]
+
+  Bits 7-6: CMD (Command)
+    00 = SET     Set parameters and start measurement (not saved to EEPROM)
+    01 = STATUS  Query instrument status (optional polling)
+    10 = RESET   Power down and reset state (see RESET semantics)
+    11 = Reserved for future use
+
+  Bits 5-0: Reserved; set to 0.
+
+  Example values:
+    0x00  SET
+    0x40  STATUS
+    0x80  RESET
+
+================================================================================
+4. CTRL BYTE - FIRMWARE TO PC (RESPONSE)
+================================================================================
+
+  Bit layout:
+    7   6   5   4   3   2   1   0
+  [STATUS][DATA][RES][   STATE   ]
+
+  Bits 7-6: STATUS
+    00 = ACK    Command accepted; data valid
+    01 = BUSY   Measurement in progress; retry later
+    10 = ERROR  Error (error code in R1)
+    11 = ALARM  Safety alarm (details in R1 / alarm bits)
+
+  Bit 5: DATA. When 1, this frame is a measurement result (data) frame; the
+    meter sends such frames automatically after a measurement (section 10).
+    When 0, this is a command response (status ACK, BUSY, ERROR, or ALARM).
+  Bit 4: Reserved; set to 0.
+
+  Bits 3-0: STATE
+    Bit 3  HEATING     Heater warmup in progress
+    Bit 2  MEASURING   Measurement in progress
+    Bit 1  REMOTE      Remote control active
+    Bit 0  ALARM_LATCH Alarm condition latched
+
+  Examples:
+    0x02  ACK, remote active
+    0x0C  ACK, measuring
+    0x20  DATA (measurement result frame; see section 10)
+    0x42  BUSY, measurement in progress
+    0x82  ERROR (details in R1)
+
+================================================================================
+5. INDEX BYTE (BYTE 1)
+================================================================================
+
+  Byte 1 of every frame is INDEX. For SET, it identifies tube type and
+  system; firmware echoes it in ACK and in the DATA frames. For STATUS
+  and RESET the PC typically sends INDEX = 0x00.
+
+  Bits 7-4: TUBE_TYPE
+    0 = Triode
+    1 = Double triode
+    2 = Pentode
+    3 = Beam tetrode
+    4 = Diode
+    5 = Double diode
+    6-15 = Reserved
+
+  Bits 3-1: SYSTEM
+    0 = Single system
+    1 = System 1 of dual tube
+    2 = System 2 of dual tube
+    4 = Reserved
+
+  Bit 0: HEATER TYPE
+    0 = Parallel
+    1 = Series
+
+  Example: 0x11 = Double triode, system 1, parallel heating.
+
+================================================================================
+6. SET COMMAND - PARAMETER ENCODING (P1-P5)
+================================================================================
+
+  SET request: CTRL = 0x00, INDEX, P1-P5.
+
+  P1 - Heater value (voltage in multiples of 0.1 i.e. 63 is 6.3V, or current 
+    in multiples of 10mA i.e. 30 means 300mA. Effective range is 0V - 25.6V for 
+    tubes heated in parallel, and 0 - 2.56A for tubes heated in series.
+    Out-of-range value causes ERROR response with R1=OUT_OF_RANGE, R2=2,
+    R3-R4 = attempted value.
+
+  P2 - Anode voltage (Ua)
+    Encoded in implementation-defined steps (e.g. 10 V per step, 0-300 V).
+    Out-of-range value causes ERROR response with R1=OUT_OF_RANGE, R2=2,
+    R3-R4 = attempted value.
+
+  P3 - Screen voltage (Ug2)
+    Same style as P2 (e.g. 10 V steps, 0-300 V). R2=3 if out of range.
+
+  P4 - Grid 1 voltage (Ug1, negative)
+    Magnitude encoded (e.g. 0.1 V steps, 0 = 0 V, 240 = -24 V). R2=4 if out of range.
+
+  P5 - Heating / measurement time index
+    E.g. 0-63 mapping to 0-31.5 s in 500 ms steps. R2=5 if out of range.
+
+  SET response:
+    On success: Firmware sends ACK (CTRL = 0x02, INDEX echoed, R1-R5 = 0) and
+                starts the measurement automatically. When the measurement completes,
+                the meter sends the four DATA frames (section 10) without any
+                further command from the PC.
+    On error:   CTRL = 0x82 (ERROR), INDEX echoed, R1 = error code (e.g. 0x02 OUT_OF_RANGE),
+               R2 = parameter id (1-5), R3-R4 = 16-bit attempted value (high byte R3).
+    If a measurement is already in progress: CTRL = 0x42 (BUSY), INDEX echoed, R1-R5 = 0.
+
+================================================================================
+7. STATUS COMMAND
+================================================================================
+
+  Request: CTRL = 0x40, INDEX = 0x00, P1-P5 = 0.
+
+  Response: 8-byte frame. CTRL = current status/state. R1 = alarm flags if applicable.
+  R2-R5 may carry remaining time, last Ua/Ia/Ug1, etc., as defined in the implementation.
+
+  STATUS is optional. The PC does NOT need to send STATUS to receive measurement
+  data: the meter sends the four DATA frames automatically when the measurement
+  (triggered by SET) completes. STATUS is used to poll the meter for an update
+  (e.g. when a timeout expires) to see if the meter is still BUSY or has finished.
+
+================================================================================
+8. RESET COMMAND
+================================================================================
+
+  Request: CTRL = 0x80, INDEX = 0x00, P1 = which subcircuits to power down,
+           P2-P5 = 0.
+
+  P1 specifies what to power down:
+    0x01  Power down Ua, Ug2, and Ug1 only (anode, screen, grid 1)
+    0x02  Power down everything: Ua, Ug2, Ug1 and Uh (full power down, e.g. when swapping the tube)
+
+  Response: 8-byte ACK (CTRL = 0x02, INDEX echoed, R1-R5 = 0).
+
+  Semantics: Power down in a defined order.
+    - 0x01: Ua, then Ug2, then Ug1.
+    - 0x02: Ua, then Ug2, then Ug1, then Uh.
+  RESET also clears alarm latch and stops an in-progress measurement. If P1 is
+  not 0x01 or 0x02, behaviour is implementation-defined (e.g. ignore or treat as 0x02).
+
+================================================================================
+9. MEASUREMENT FLOW
+================================================================================
+
+  There is one measurement sequence. Flow: SET -> ACK (measurement starts
+  automatically) -> [optionally STATUS if the PC wants to poll, e.g. on timeout]
+  -> four DATA frames (sent automatically by the meter when done) -> RESET.
+  The PC does NOT send a MEAS command; SET both loads parameters and starts
+  the measurement. Curve tracing is just many SET commands from the desktop app
+  (e.g. SET Ua=100V, wait for DATA; SET Ua=120V, wait for DATA; ...).
+
+  One measurement cycle:
+
+    1. PC sends SET (CTRL=0x00, INDEX, P1-P5).
+    2. Firmware receives and parses the frame.
+    3. Meter applies settings (hardware sequence: heater, voltages, etc.).
+    4. Firmware sends response (status ACK or BUSY) and starts heating/settling, or sends ERROR.
+    5. Meter waits (warmup, settling, etc.) then samples Uh, Ih, Ua, Ia, Ug2, Ig2, Ug1.
+    6. Firmware sends the four DATA frames automatically (no command from PC).
+
+  RESET is used between measurements to power down (Ua, Ug1; and Uh when swapping tube).
+  Example for a double triode and then the next tube:
+
+    SET system 1, Uh=6.3V, Ua=200V, Ug1=1V  -> ACK -> (optional STATUS) -> DATA
+    SET system 1, Uh=6.3V, Ua=200V, Ug1=1.4V (for S/K) -> ACK -> DATA
+    RESET (Ua, Ug1)
+    SET system 2, Uh=6.3V, Ua=200V, Ug1=1V  -> ACK -> DATA
+    SET system 2, Uh=6.3V, Ua=200V, Ug1=1.4V -> ACK -> DATA
+    RESET (Ua, Ug1, Uh)  then swap tube
+    SET system 1, ...  and so on.
+
+================================================================================
+10. DATA FRAMES (RAW VOLTAGES AND CURRENTS)
+================================================================================
+
+  The meter does not stabilize Ua/Ug2 to exact setpoints. The protocol
+  reports actual measured voltages and currents so the PC can compute
+  characteristics and S, R, K. S (slope), R (anode resistance), and K
+  (amplification factor) are not sent; the PC computes them from the raw values.
+
+10.1 QUANTITIES AND UNITS
+-------------------------
+  All values are uint16_t and represent a sum of 64 measurements from the 
+  firmware. The final results to be calculated on the computer side.
+
+  Plus: INDEX (echo), and an alarm byte (bits 7-4: OVERTE, OVERIG, OVERIA, OVERIH).
+
+  Ug1 is sent as unsigned magnitude; the physical grid 1 voltage is negative,
+  i.e. physical Ug1 = -(value/100) V (e.g. 2400 = -24.00 V).
+
+10.2 FOUR-FRAME LAYOUT (8 BYTES EACH, CRC ON BYTES 0-6)
+-------------------------------------------------------
+  All multi-byte values are little-endian (low byte first). The meter sends
+  these four frames automatically when a measurement completes (no command
+  from the PC).   In each frame, CTRL has STATUS = ACK (bits 7-6 = 00) and
+  DATA = 1 (bit 5 = 1); see section 4. Example: CTRL = 0x20 (DATA frame).
+
+  Frame 1:  CTRL, INDEX, Uh_lo,  Uh_hi,  Ih_lo,  Ih_hi,  0, CRC
+  Frame 2:  CTRL, INDEX, Ua_lo,  Ua_hi,  Ug2_lo, Ug2_hi, 0, CRC
+  Frame 3:  CTRL, INDEX, Ia_lo,  Ia_hi,  Ig2_lo, Ig2_hi, 0, CRC
+  Frame 4:  CTRL, INDEX, Ug1_lo, Ug1_hi, alarm,  0,      0, CRC
+
+  Alarm byte: only bits 7-4 are used (OVERTE, OVERIG, OVERIA, OVERIH). Bits 3-0 reserved (0).
+
+================================================================================
+11. ERROR CODES (R1 WHEN CTRL STATUS = ERROR)
+================================================================================
+
+  0x00  UNKNOWN
+  0x01  UNKNOWN (reserved)
+  0x02  OUT_OF_RANGE   Parameter value invalid. R2 = parameter id (1-5), R3-R4 = attempted value.
+  0x03  CRC_ERROR      Received frame had invalid CRC. Command was not executed.
+  0x04  INVALID_CMD    Command bits or frame format invalid.
+  0x06  HARDWARE       ADC, PWM, or other hardware fault.
+
+================================================================================
+12. ALARM BITS (DATA FRAME 4, BYTE 5, BITS 7-4)
+================================================================================
+
+  Bit 7  OVERTE  Temperature / heatsink alarm
+  Bit 6  OVERIG  Grid 2 current alarm
+  Bit 5  OVERIA  Anode current alarm
+  Bit 4  OVERIH  Heater current alarm
+
+  When an alarm is active the firmware may respond with CTRL STATUS = ALARM
+  and set ALARM_LATCH in STATE. RESET clears the latch and powers down as above.
+
+================================================================================
+13. LEGACY ASCII MODE (ESC)
+================================================================================
+
+  When the PC sends the ESC character (0x1B), the firmware may respond with
+  an ASCII dump of the current LCD line (e.g. for debugging). This is outside
+  the binary protocol and does not affect REMOTE mode. Binary and ESC can
+  coexist on the same link.
+
+================================================================================
+14. VERSION AND COMPATIBILITY
+================================================================================
+
+  This is protocol version 0.4. Changes from 0.3: INDEX bit 0 is heater wiring
+  (parallel vs series); SYSTEM is in bits 3-1; SET P1 is a numeric heater value
+  (0.1 V or 10 mA steps per §6), not a discrete heater index. DATA uint16 fields
+  (§10.1) are sums of 64 ADC samples; the PC converts to engineering units.
+  There is no MEAS command; SET starts measurement and the meter sends four
+  DATA frames (CTRL bit 5 = DATA). SET=0x00, STATUS=0x40, RESET=0x80.
+  The PC and firmware must agree on the protocol version (e.g. by build
+  variant or version handshake).
+
+================================================================================
+END OF PROTOCOL SPECIFICATION v0.4
+================================================================================
+
+Document: VTTester_Protocol_v0.4.txt
+Version: 0.4
+
+================================================================================

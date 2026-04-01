@@ -16,7 +16,7 @@ from backend.communication.protocol import RSP_ERROR, RSP_ACK
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description="VTTester v0.4 serial skeleton")
+    p = argparse.ArgumentParser(description="VTTester v0.4.1 serial skeleton")
     p.add_argument("port", help="Serial device (e.g. /dev/cu.SLAB_USBtoUART)")
     p.add_argument("-b", "--baud", type=int, default=9600)
     args = p.parse_args(argv)
@@ -28,6 +28,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f'STATUS ECHO: {st}')
             print("SET (draft params) …")
             frames = link.frames_after_set()
+            
             for i, fr in enumerate(frames):
                 kind = "?"
                 if fr.ctrl & 0x20:
