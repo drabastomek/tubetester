@@ -4,12 +4,10 @@
  * comm_receive_byte(b): feed each RX byte (e.g. from USART ISR).
  * comm_handle_requests(): call from main — CRC error reply, staged RX → handle_request, drain TX.
  *
- * 9-byte frames: CRC over bytes 0–7, byte 8 = CRC. SET → ACK + three stub DATA frames.
+ * 9-byte frames: CRC over bytes 0–7, byte 8 = CRC. SET → ACK; DATA triple from main.
  */
 
 #include <string.h>
-
-#include <avr/io.h>
 
 #include "communication.h"
 
@@ -83,6 +81,15 @@ static frame_t staged_host_request;
 
 static volatile uint8_t vt_meas_busy;
 
+/* Last accepted SET (decoded); DATA frames are enqueued later from main (see §9 flow). */
+static uint8_t last_set_idx;
+static uint8_t last_set_p1_heater;
+static uint16_t last_set_ua_12;
+static uint16_t last_set_ug2_12;
+static uint8_t last_set_p5_ug1;
+static uint8_t last_set_p6_time;
+static uint8_t measurement_data_pending;
+
 /* ------------------------------------------------------------------------- */
 
 void comm_init(void)
@@ -94,17 +101,13 @@ void comm_init(void)
 	outgoing_queue_write_index = 0;
 	outgoing_queue_read_index = 0;
 	outgoing_queued_frame_count = 0;
-}
-
-void comm_transmit_byte(uint8_t b)
-{
-	while (!(UCSRA & (1u << UDRE)))
-		;
-	UDR = b;
+	measurement_data_pending = 0;
 }
 
 void comm_transmit_string(const char *s)
 {
+	if (!s)
+		return;
 	while (*s)
 		comm_transmit_byte((uint8_t)*s++);
 }
@@ -196,54 +199,54 @@ static void reply_error(uint8_t errtype, uint8_t idx, uint8_t param_id, uint16_t
 	enqueue_reply_frame(&f);
 }
 
-static void reply_error_crc(void)
+void reply_error_crc(void)
 {
 	reply_error(VTT_ERR_CRC, 0u, 0u, 0u);
 }
 
-static void reply_error_invalid(uint8_t idx)
+void reply_error_invalid(uint8_t idx)
 {
 	reply_error(VTT_ERR_INVALID_CMD, idx, 0u, 0u);
 }
 
-static void reply_error_range(uint8_t idx, uint8_t param_id, uint16_t attempted)
+void reply_error_range(uint8_t idx, uint8_t param_id, uint16_t attempted)
 {
 	reply_error(VTT_ERR_OUT_OF_RANGE, idx, param_id, attempted);
 }
 
-static void reply_busy(uint8_t idx)
+void reply_busy(uint8_t idx)
 {
 	reply_to_pc(VTT_RSP_BUSY, idx, 0u, 0u, 0u, 0u, 0u, 0u);
 }
 
-static void reply_ack(uint8_t idx)
+void reply_ack(uint8_t idx)
 {
 	reply_to_pc(VTT_RSP_ACK, idx, 0u, 0u, 0u, 0u, 0u, 0u);
 }
 
 /* ------------------------------------------------------------------------- */
-/* Stub: three 9-byte DATA frames (v0.4.1 §10.2) */
+/* §10.2 — three DATA frames (public: main enqueues after ACK was drained). */
 /* ------------------------------------------------------------------------- */
 
-static void enqueue_data_stub(uint8_t idx)
+void comm_enqueue_measurement_data(
+	uint8_t idx,
+	uint16_t uh_sum,
+	uint16_t ih_sum,
+	uint16_t ua_sum,
+	uint16_t ug2_sum,
+	uint16_t ug1_sum,
+	uint16_t ia_sum,
+	uint16_t ig2_sum,
+	uint8_t alarm)
 {
-	const uint16_t uh = 40320u;
-	const uint16_t ih = 28160u;
-	const uint16_t ua = 51200u;
-	const uint16_t ug2 = 48000u;
-	const uint16_t ia = 9600u;
-	const uint16_t ig2 = 640u;
-	const uint16_t ug1 = 8000u;
-	const uint8_t alarm = 0u;
-
-	/* Frame 1: Uh, Ih, reserved (§10.2) */
+	/* Frame 1: Uh, Ih, reserved */
 	reply_to_pc(
 	    VTT_RSP_DATA,
 	    idx,
-	    le16_lo(uh),
-	    le16_hi(uh),
-	    le16_lo(ih),
-	    le16_hi(ih),
+	    le16_lo(uh_sum),
+	    le16_hi(uh_sum),
+	    le16_lo(ih_sum),
+	    le16_hi(ih_sum),
 	    0u,
 	    0u);
 
@@ -251,23 +254,50 @@ static void enqueue_data_stub(uint8_t idx)
 	reply_to_pc(
 	    VTT_RSP_DATA,
 	    idx,
-	    le16_lo(ua),
-	    le16_hi(ua),
-	    le16_lo(ug2),
-	    le16_hi(ug2),
-	    le16_lo(ug1),
-	    le16_hi(ug1));
+	    le16_lo(ua_sum),
+	    le16_hi(ua_sum),
+	    le16_lo(ug2_sum),
+	    le16_hi(ug2_sum),
+	    le16_lo(ug1_sum),
+	    le16_hi(ug1_sum));
 
 	/* Frame 3: Ia, Ig2, alarm, reserved */
 	reply_to_pc(
 	    VTT_RSP_DATA,
 	    idx,
-	    le16_lo(ia),
-	    le16_hi(ia),
-	    le16_lo(ig2),
-	    le16_hi(ig2),
+	    le16_lo(ia_sum),
+	    le16_hi(ia_sum),
+	    le16_lo(ig2_sum),
+	    le16_hi(ig2_sum),
 	    alarm,
 	    0u);
+}
+
+uint8_t comm_measurement_data_pending(void)
+{
+	return measurement_data_pending;
+}
+
+void comm_get_last_remote_set(
+	uint8_t *idx,
+	uint8_t *p1_heater,
+	uint16_t *ua_12,
+	uint16_t *ug2_12,
+	uint8_t *p5_ug1_mag,
+	uint8_t *p6_time_idx)
+{
+	*idx = last_set_idx;
+	*p1_heater = last_set_p1_heater;
+	*ua_12 = last_set_ua_12;
+	*ug2_12 = last_set_ug2_12;
+	*p5_ug1_mag = last_set_p5_ug1;
+	*p6_time_idx = last_set_p6_time;
+}
+
+void comm_clear_measurement_data_pending(void)
+{
+	measurement_data_pending = 0;
+	vt_meas_busy = 0;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -331,7 +361,8 @@ static int set_params_ok(const frame_t *rq)
  * One validated 9-byte request from the PC (already CRC-checked in comm_receive_byte,
  * staged into staged_host_request; run from comm_handle_requests, not from ISR).
  * Low 6 bits of CTRL must be 0 (v0.4.1 §3). Dispatches SET / STATUS / RESET and
- * enqueues replies via reply_to_pc / reply_error / enqueue_data_stub (stub measurement).
+ * enqueues replies via reply_to_pc / reply_error. DATA frames: main calls
+ * comm_enqueue_measurement_data after ACK (see protocol flow / heating delay).
  */
 static void handle_request(const frame_t *rq)
 {
@@ -353,10 +384,22 @@ static void handle_request(const frame_t *rq)
 		}
 		if (!set_params_ok(rq))
 			return;
-		vt_meas_busy = 1;
+		{
+			uint16_t ua;
+			uint16_t ug2;
+
+			ua = (uint16_t)rq->p2 | ((uint16_t)((rq->p3 >> 4) & 0x0Fu) << 8);
+			ug2 = (uint16_t)rq->p4 | ((uint16_t)(rq->p3 & 0x0Fu) << 8);
+			last_set_idx = rq->idx;
+			last_set_p1_heater = rq->p1;
+			last_set_ua_12 = ua;
+			last_set_ug2_12 = ug2;
+			last_set_p5_ug1 = rq->p5;
+			last_set_p6_time = rq->p6;
+			measurement_data_pending = 1u;
+			vt_meas_busy = 1u;
+		}
 		reply_ack(rq->idx);
-		enqueue_data_stub(rq->idx);
-		vt_meas_busy = 0;
 		break;
 
 	case VTT_REQ_STATUS:
@@ -378,6 +421,7 @@ static void handle_request(const frame_t *rq)
 		if (p1 != VTT_RESET_UA_UG2_UG1 && p1 != VTT_RESET_FULL && p1 != 0u)
 			p1 = VTT_RESET_FULL;
 		(void)p1;
+		measurement_data_pending = 0;
 		vt_meas_busy = 0;
 		reply_ack(rq->idx);
 		break;

@@ -81,10 +81,67 @@ void comm_receive_byte(uint8_t b);
 void comm_handle_requests(void);
 
 /**
- * Blocking USART TX helpers (default UART on avr/io.h names, e.g. ATmega32).
- * Used by comm_handle_requests; exposed for harness / debug output.
+ * Link layer: blocking TX of one byte. Not implemented in communication.c — supply
+ * in your port file (GCC-AVR: avr/io.h + USART regs; ICCAVR: your register API).
+ * Used by comm_handle_requests and by comm_transmit_string.
  */
 void comm_transmit_byte(uint8_t b);
+
+/** Optional helper; calls comm_transmit_byte (portable C in communication.c). */
 void comm_transmit_string(const char *s);
+
+/**
+ * Outbound protocol responses (v0.4.1 §4, §6): enqueue one frame on the TX queue.
+ *
+ * Call only from normal thread context (e.g. main loop), same rules as
+ * comm_handle_requests — not from ISR. The module already uses these internally;
+ * exposing them is for application-level errors, tests, or bridges that must
+ * signal BUSY/ACK/ERROR without going through a full SET/STATUS/RESET parse.
+ *
+ * Do not combine carelessly with comm_handle_requests in one iteration in a way
+ * that double-ACKs or contradicts vt_meas_busy / measurement_data_pending state.
+ */
+void reply_error_crc(void);
+/** R1 = VTT_ERR_INVALID_CMD; echo idx from the request being rejected. */
+void reply_error_invalid(uint8_t idx);
+/**
+ * R1 = VTT_ERR_OUT_OF_RANGE, R2 = param_id (1..6 per §6), R3–R4 = attempted
+ * value big-endian (high, low).
+ */
+void reply_error_range(uint8_t idx, uint8_t param_id, uint16_t attempted);
+/** CTRL = VTT_RSP_BUSY; use when measurement already in progress (§6). */
+void reply_busy(uint8_t idx);
+/** CTRL = VTT_RSP_ACK, payload zero; success accept (§6 SET response, etc.). */
+void reply_ack(uint8_t idx);
+
+/**
+ * After a valid SET, firmware ACKs immediately; DATA (3 frames, §10.2) is queued
+ * separately so the host sees ACK before RESULT (e.g. heating / settling).
+ *
+ * comm_measurement_data_pending(): non-zero if a SET is waiting for DATA to be enqueued.
+ * comm_get_last_remote_set(): decoded fields from the last accepted SET (P5 = |Ug1| wire units).
+ * comm_enqueue_measurement_data(): queue Uh/Ih, Ua/Ug2/Ug1, Ia/Ig2+alarm as uint16 LE sums.
+ * comm_clear_measurement_data_pending(): call after enqueue (or to cancel); clears BUSY for STATUS.
+ */
+uint8_t comm_measurement_data_pending(void);
+
+void comm_get_last_remote_set(
+	uint8_t *idx,
+	uint8_t *p1_heater,
+	uint16_t *ua_12,
+	uint16_t *ug2_12,
+	uint8_t *p5_ug1_mag,
+	uint8_t *p6_time_idx);
+void comm_enqueue_measurement_data(
+	uint8_t idx,
+	uint16_t uh_sum,
+	uint16_t ih_sum,
+	uint16_t ua_sum,
+	uint16_t ug2_sum,
+	uint16_t ug1_sum,
+	uint16_t ia_sum,
+	uint16_t ig2_sum,
+	uint8_t alarm);
+void comm_clear_measurement_data_pending(void);
 
 #endif
