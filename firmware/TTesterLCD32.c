@@ -1,28 +1,31 @@
-/*
- * comms-testing harness — VTTester protocol v0.4.1 (binary, 9-byte frames) on USART.
- * ISRs stay here; communication layer is byte-oriented (comm_receive_byte).
- *
- * Double-triode style host flow (see protocol §9, user sequence):
- *   SET sys1 … → ACK (heat/settle) → RESULT (3× DATA) → SET sys1 other Ug1 → …
- *   RESET Ua,Ug1 → SET sys2 … → … → RESET Ua,Ug1,Uh → swap tube → repeat.
- *
- * DATA is not sent in the same comm_handle_requests pass as ACK: main calls
- * harness_enqueue_measurement_stub() first so the host sees ACK before RESULT.
- */
 #include <avr/io.h>
 #include <avr/interrupt.h>
 
 #include "config/config.h"
 #include "communication/communication.h"
 
-/* Port: USART TX for comm layer (communication.c is MCU/compiler-agnostic). */
-void comm_transmit_byte(uint8_t b)
-{
-	while (!(UCSRA & (1u << UDRE)))
-		;
-	UDR = b;
-}
+typedef struct
+ {
+	uint8_t a1_a2;
+	uint8_t uhset;
+	uint8_t ihset;
+	uint8_t ugset;
+	uint16_t uaset;
+	uint16_t ueset;
+} tester_params;
+tester_params tp; // params to set
 
+// measurements to send
+uint16_t mugadc; // UG
+uint16_t muhadc; // UH
+uint16_t mihadc; // IH
+uint16_t muaadc; // UA
+uint16_t miaadc; // IA
+uint16_t mueadc; // UE
+uint16_t mieadc; // IE
+uint16_t mtmadc; // TM
+
+// interrupts set
 ISR(USART_TXC_vect)
 {
 }
@@ -32,168 +35,137 @@ ISR(USART_RXC_vect)
 	comm_receive_byte(UDR);
 }
 
-/* ------------------------------------------------------------------------- */
-/* 1 ms tick (Timer0 CTC) — SET→DATA delay uses P6 × HARNESS_P6_MS_PER_UNIT */
-/* ------------------------------------------------------------------------- */
-
-/** Test harness only: P6 maps to delay as P6 × this many ms (spec prod. uses 500 ms steps). */
-#define HARNESS_P6_MS_PER_UNIT 100u
-
-static volatile uint32_t harness_ms_tick;
-
-static uint32_t harness_ms_now(void)
+// purely for testing
+void sample_adc(void)
 {
-	uint32_t t;
-	uint8_t sreg;
-
-	sreg = SREG;
-	cli();
-	t = harness_ms_tick;
-	SREG = sreg;
-	return t;
+	mugadc = (uint16_t)(20.1f  * 64.0f);
+	muhadc = (uint16_t)(126.1f * 64.0f);
+	mihadc = (uint16_t)(30.5f  * 64.0f);
+	muaadc = (uint16_t)(256.4f * 64.0f);
+	miaadc = (uint16_t)(15.1f  * 64.0f);
+	mueadc = (uint16_t)(0.0f   * 64.0f);
+	mieadc = (uint16_t)(0.0f   * 64.0f);
+	mtmadc = (uint16_t)(12.0f  * 64.0f);
 }
 
-ISR(TIMER0_COMP_vect)
+uint8_t validate_parameters(const uint8_t *rq)
 {
-	harness_ms_tick++;
-}
+	uint16_t temp;
 
-static void harness_timer0_1ms_init(void)
-{
-	/* 16 MHz / 64 / (1+249) = 1000 Hz */
-	TCCR0 = (uint8_t)((1u << WGM01) | (1u << CS01) | (1u << CS00));
-	OCR0 = 249u;
-	TCNT0 = 0u;
-	TIFR = (uint8_t)(1u << OCF0);
-	TIMSK |= (uint8_t)(1u << OCIE0);
-}
+	/*
+	 * Each check is (value < MIN || value > MAX). Wire bytes are unsigned,
+	 * so when MIN is 0 the left half is always false and GCC may warn
+	 * (-Wtype-limits). We keep both halves anyway: one pattern everywhere,
+	 * and non-zero MIN values in config.h will work without revisiting this.
+	 */
 
-/* ------------------------------------------------------------------------- */
-/* Harness PRNG + nominal × random band (permille = factor × 1000) */
-/* ------------------------------------------------------------------------- */
-
-static uint32_t harness_rng_state = 0xC001D00Du;
-
-static uint32_t harness_prng_u32(void)
-{
-	harness_rng_state = harness_rng_state * 1664525u + 1013904223u;
-	return harness_rng_state;
-}
-
-/** Uniform 0 .. n-1 (n must be > 0). */
-static uint16_t harness_prng_below(uint16_t n)
-{
-	return (uint16_t)(harness_prng_u32() % (uint32_t)n);
-}
-
-/**
- * scaled = floor(base_nom * f / 1000), f integer in [lo_permille, hi_permille], clamped to uint16.
- * Example: lo=980 hi=1030 → f in [0.980, 1.030].
- */
-static uint16_t harness_scale_permille(uint32_t base_nom, uint16_t lo_permille, uint16_t hi_permille)
-{
-	uint16_t span;
-	uint16_t f;
-	uint32_t p;
-
-	span = (uint16_t)(hi_permille - lo_permille + 1u);
-	f = (uint16_t)(lo_permille + harness_prng_below(span));
-	p = base_nom * (uint32_t)f / 1000u;
-	if (p > 65535u)
-		p = 65535u;
-	return (uint16_t)p;
-}
-
-/**
- * Toy ADC sums from last remote SET, with multiplicative spread vs nominal.
- * Nominally each channel's uint16 is the sum of 64 samples; host divides by 64 (§10.1).
- * Scale noms so that mean ≈ SET parameter in spec units: Ua/Ug2 ≈ volts (12-bit),
- * P1/P5 ≈ 0.1 V / 10 mA steps, Ug2=0 → 0 (not a fake bias).
- *   Ua  × [0.98, 1.03]   Ug2 × [0.98, 1.03]   Ug1 × [0.98, 1.03]
- *   Uh  × [0.95, 1.05]   Ih  × [0.95, 1.05]   (heater pair)
- *   Ia  × [0.75, 1.15]   Ig2 × [0.75, 1.15]
- *
- * DATA is delayed by P6 × HARNESS_P6_MS_PER_UNIT ms after ACK (harness only).
- * Main calls comm_handle_requests() first each loop so ACK/STATUS drain before the
- * harness arms the P6 deadline — no delay logic inside communication/.
- */
-static uint8_t harness_meas_delay_armed;
-static uint32_t harness_meas_deadline_ms;
-
-static void harness_try_enqueue_measurement(void)
-{
-	uint8_t idx;
-	uint8_t p1;
-	uint16_t ua12;
-	uint16_t ug212;
-	uint8_t p5;
-	uint8_t p6;
-	uint32_t ua_nom;
-	uint32_t ug2_nom;
-	uint32_t uh_nom;
-	uint32_t ih_nom;
-	uint32_t ug1_nom;
-	uint16_t ih_sum;
-	uint16_t ua_sum;
-	uint16_t ug2_sum;
-	uint16_t uh_sum;
-	uint16_t ug1_sum;
-	uint16_t ia_nom;
-	uint16_t ig2_nom;
-	uint16_t ia_sum;
-	uint16_t ig2_sum;
-	uint32_t now;
-
-	if (!comm_measurement_data_pending())
+	// ug
+	if (rq[2] < UG_MIN || rq[2] > UG_MAX)
 	{
-		harness_meas_delay_armed = 0;
-		return;
+		send_input_range_error(PARAM_ID_UG, rq[2]);
+		return 0;
 	}
 
-	comm_get_last_remote_set(&idx, &p1, &ua12, &ug212, &p5, &p6);
-	now = harness_ms_now();
-
-	if (!harness_meas_delay_armed)
+	// uh
+	if (rq[3] < UH_MIN || rq[3] > UH_MAX)
 	{
-		harness_meas_deadline_ms = now + (uint32_t)p6 * HARNESS_P6_MS_PER_UNIT;
-		harness_meas_delay_armed = 1;
+		send_input_range_error(PARAM_ID_UH, rq[3]);
+		return 0;
 	}
 
-	if (now < harness_meas_deadline_ms)
-		return;
+	// ih
+	if (rq[4] < IH_MIN || rq[4] > IH_MAX)
+	{
+		send_input_range_error(PARAM_ID_IH, rq[4]);
+		return 0;
+	}
 
-	/* Stir RNG per measurement so consecutive SETs differ. */
-	harness_rng_state += (uint32_t)idx + (uint32_t)ua12 + (uint32_t)ug212 + (uint32_t)p5 + (uint32_t)p1;
+	// ua and ue are 16 bit values
+	// ua
+	temp = rq[6]; temp <<= 8; temp += rq[5];
+	if (temp < UA_MIN || temp > UA_MAX)
+	{
+		send_input_range_error(PARAM_ID_UA, rq[6]);
+		return 0;
+	}
 
-	uh_nom = (uint32_t)p1 * 64u;
-	ih_nom = (uint32_t)p1 * 64u;
-	ua_nom = (uint32_t)ua12 * 64u;
-	ug2_nom = (uint32_t)ug212 * 64u;
-	ug1_nom = (uint32_t)p5 * 64u;
-	ia_nom = 9600u;
-	ig2_nom = 640u;
+	// ue
+	temp = rq[8]; temp <<= 8; temp += rq[7];
+	if (temp < UE_MIN || temp > UE_MAX)
+	{
+		send_input_range_error(PARAM_ID_UE, rq[8]);
+		return 0;
+	}
 
-	uh_sum = harness_scale_permille(uh_nom, 950u, 1050u);
-	ih_sum = harness_scale_permille(ih_nom, 950u, 1050u);
-	ua_sum = harness_scale_permille(ua_nom, 980u, 1030u);
-	ug2_sum = harness_scale_permille(ug2_nom, 980u, 1030u);
-	ug1_sum = harness_scale_permille(ug1_nom, 980u, 1030u);
-	ia_sum = harness_scale_permille((uint32_t)ia_nom, 750u, 1150u);
-	ig2_sum = harness_scale_permille((uint32_t)ig2_nom, 750u, 1150u);
+	return 1;
+}
 
-	comm_enqueue_measurement_data(
-	    idx,
-	    uh_sum,
-	    ih_sum,
-	    ua_sum,
-	    ug2_sum,
-	    ug1_sum,
-	    ia_sum,
-	    ig2_sum,
-	    0u);
+// handle incoming message
+static void handle_rx_msg(const uint8_t *rq)
+{
+	uint8_t c;
 
-	comm_clear_measurement_data_pending();
-	harness_meas_delay_armed = 0;
+	c = rq[0];
+
+	switch (c)
+	{
+	case CMD_SET:
+		// TODO: validate parameters / send error if invalid
+		if (!validate_parameters(rq))
+		{
+			return;
+		}
+
+		tp.a1_a2 = rq[1];
+		tp.ugset = rq[2];
+		tp.uhset = rq[3];
+		tp.ihset = rq[4];
+		tp.uaset = rq[6]; tp.uaset <<= 8; tp.uaset += rq[5];
+		tp.ueset = rq[8]; tp.ueset <<= 8; tp.ueset += rq[7];
+
+		// send ACK
+		send_ack();
+		break;
+
+	case CMD_RESET:
+		if (rq[1] == RESET_HEATER)
+		{
+			tp.uhset = 0;
+			tp.ihset = 0;
+		}
+		else
+		{
+			tp.uaset = 0;
+			tp.ueset = 0;
+			tp.ugset = 240u;
+		}
+
+		// send ACK
+		send_ack();
+		break;
+
+	case CMD_STATUS:
+		// send DATA
+		send_data(
+			tp.a1_a2, 
+			(uint16_t[]){
+				muhadc,
+				mihadc,
+				mugadc,
+				muaadc,
+				miaadc,
+				mueadc,
+				mieadc,
+				mtmadc
+			}, 
+			8);
+		break;
+
+	default:
+		// send ERROR
+		send_error(VTT_ERR_INVALID_CMD);
+		break;
+	}
 }
 
 int main(void)
@@ -201,22 +173,17 @@ int main(void)
 	configure_processor();
 	configure_ports();
 	configure_uart();
-	comm_init();
-
-	/* Drain RX FIFO (noise); USART ISRs are still masked until sei(). */
-	while (UCSRA & (1 << RXC))
-		(void)UDR;
-
-#ifdef COMMS_DEBUG_BOOT
-	comm_transmit_string("comms v0.4.1 binary\r\n");
-#endif
-
-	harness_timer0_1ms_init();
 	sei();
+
+	sample_adc();
 
 	for (;;)
 	{
-		comm_handle_requests();
-		harness_try_enqueue_measurement();
+		// on receive command, handle it
+		uint8_t* bufin = comm_rx_msg();
+		if (bufin)
+		{
+			handle_rx_msg(bufin);
+		}
 	}
 }

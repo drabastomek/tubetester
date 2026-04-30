@@ -7,7 +7,7 @@ void configure_processor(void)
 
 void configure_ports(void)
 {
-	/****** Konfiguracja portow (same as full firmware / main) ***********************************/
+	/* Konfiguracja portow */
 	/*                        7   6   5   4   3   2   1   0
 	                          UG1 IG2 UG2  IA  UA  UH  IH REZ */
 	DDRA  = 0x00;

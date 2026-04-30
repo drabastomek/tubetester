@@ -1,0 +1,170 @@
+================================================================================
+VTTester Communication Protocol - Version 0.5
+Desktop Application <--> Firmware Binary Protocol (REMOTE Mode Only)
+================================================================================
+
+================================================================================
+1. SCOPE
+================================================================================
+
+The protocol is used between a desktop application (PC) and the tube tester
+firmware in REMOTE mode. All frames are binary.
+
+Version 0.5 replaces the v0.4.x nine-byte CTRL / INDEX / P1-P6 command layout and
+the three nine-byte DATA result frames with:
+
+  - One fixed-layout 10-byte frame from PC to firmware (measurement / poll
+    request).
+
+  - One fixed-layout 20-byte measurement response from firmware to PC (raw
+    ADC sums and status), terminated by CRC-8.
+
+The PC does not use the legacy multi-field SET encoding from v0.4.1 on the wire
+in v0.5; tube setup and catalog handling are outside this document unless added
+in a later revision.
+
+================================================================================
+2. FRAME STRUCTURE (OVERVIEW)
+================================================================================
+
+  Direction          | Length | CRC position
+  -------------------|--------|------------------------------------------
+  PC -> Firmware     | 10     | Byte 9 = CRC-8 of bytes 0-8
+  Firmware -> PC     | 20     | Byte 19 = CRC-8 of bytes 0-18
+
+Multi-byte measurements are little-endian uint16 on the wire (low byte first).
+
+================================================================================
+3. CRC-8
+================================================================================
+
+  Algorithm: CRC-8 with polynomial 0x07 (x^8 + x^2 + x + 1)
+  Initial value: 0x00
+  Final XOR: 0x00
+
+  The checksum covers every payload byte in order, excluding the CRC byte
+  itself. For each transmitted octet B (in order), update:
+
+    crc = CRC8_TABLE[crc ^ B]
+
+  where crc starts at 0 before the first byte of the frame. The final crc value
+  is sent as the last byte of the frame.
+
+  Table-driven implementation is recommended (256-byte lookup table). Same
+  polynomial and update rule as v0.4.1; implementations may reuse the same table.
+
+  On CRC mismatch the receiver must discard the frame and must not act on its
+  contents.
+
+================================================================================
+4. PC -> FIRMWARE — MEASUREMENT REQUEST (10 BYTES)
+================================================================================
+
+The firmware treats a valid request as a frame matching all of the following
+(in addition to CRC). Values shown are the normative bytes for a valid request.
+
+ Byte | Field (mnemonic) | Value (hex) | Description
+------|------------------|-------------|------------------------------------------
+  0   | CMD              | 0x00        | Command: 0x00 - SET, 0x01 - RESET, 0x02 - STATUS
+      |                  |             | Bits 2-7 reserved
+  1   | A1_A2            | 0x30        | Anode / system selector (default '0') 
+      |                  |             | this shold be a bit or we bundle it in CMD
+  2   | UG               | 0xFF        | Ug G1 voltage (default 255 --> -25.5V)
+  3   | UH               | 0x00        | Uh HTR voltage (if 0 - series and IH needs to be set)
+  4   | IH               | 0x00        | Ih HTR current (if Uh == 0 -> this needs current value)
+  5   | UA_L             | 0x00        | Ua Anode voltage (low)
+  6   | UA_H             | 0x00        | Ua Anode voltage (high)
+  7   | UE_L             | 0x00        | Ug2 Screen voltage (low)
+  8   | UE_H             | 0x00        | Ug2 Screen voltage (low)
+  9   | CRC              | computed    | CRC-8 of bytes 0-8
+
+Note: Bytes 2-3 form the little-endian uint16 value 0x00FF (255) on the wire
+for the Ug pair in the request template. Bytes 4-8 are validated as zero in the
+reference firmware condition you provided; extend semantics here if future
+revisions use non-zero placeholders.
+
+================================================================================
+5. FIRMWARE -> PC — MEASUREMENT RESPONSE (20 BYTES)
+================================================================================
+
+After a valid request (or when the firmware is configured to emit a snapshot),
+the meter sends one 20-byte frame in this order:
+
+ Byte | Field (mnemonic) | Type        | Description
+------|------------------|-------------|------------------------------------------
+  0   | CMD              | uint8       | 0x00 -- DATA, 0x01 -- ERROR
+  1   | A1_A2            | uint8       | Anode / half-tube selector (e.g. setlcd.an: 1 or 2)
+  2   | UGL              | uint8       | Grid voltage sum, low byte (64 ADC samples summed)
+  3   | UGH              | uint8       | Grid voltage sum, high byte
+  4   | UHL              | uint8       | Heater voltage sum, low byte
+  5   | UHH              | uint8       | Heater voltage sum, high byte
+  6   | IHL              | uint8       | Heater current sum, low byte
+  7   | IHH              | uint8       | Heater current sum, high byte
+  8   | UAL              | uint8       | Anode voltage sum, low byte
+  9   | UAH              | uint8       | Anode voltage sum, high byte
+ 10   | IAL              | uint8       | Anode current sum, low byte
+ 11   | IAH              | uint8       | Anode current sum, high byte
+ 12   | UEL              | uint8       | Electrode / auxiliary voltage sum, low byte
+ 13   | UEH              | uint8       | Electrode / auxiliary voltage sum, high byte
+ 14   | IEL              | uint8       | Electrode / auxiliary current sum, low byte
+ 15   | IEH              | uint8       | Electrode / auxiliary current sum, high byte
+ 16   | TML              | uint8       | ???
+ 17   | TMH              | uint8       | ???
+ 18   | ERR              | uint8       | Status and alarm bits (section 6)
+ 19   | CRC              | uint8       | CRC-8 of bytes 0-18
+
+Each pair (L,H) is one uint16 little-endian value: value = L + (H << 8).
+Scaling from these raw sums to engineering units (volts, amperes, degrees) is
+agreed between PC and firmware builds; the protocol carries raw sums only.
+
+================================================================================
+6. ERR BYTE (BYTE 18 OF THE RESPONSE)
+================================================================================
+
+Bit masks below use bit 7 = MSB of the byte.
+
+  Bit 7  RNG200    Range / measurement-range indicator (from mesrange handling
+                   in firmware; exact semantics implementation-defined)
+  Bits 6-4        Reserved (treat as 0 when emitting; ignore when receiving
+                   unless later spec assigns them)
+  Bit 3  OVERTM   Overtemperature (thermal channel alarm)
+  Bit 2  OVERIE   Overcurrent, electrode / IE channel
+  Bit 1  OVERIA   Overcurrent, anode / Ia channel
+  Bit 0  OVERIH   Overcurrent, heater / Ih channel
+
+Firmware may combine range and alarm information into ERR before transmission.
+The PC should not assume ERR bits are a full superset of latched hardware alarms
+unless documented for a given build.
+
+================================================================================
+7. MEASUREMENT FLOW (INFORMATIVE)
+================================================================================
+
+  1. PC sends the 10-byte request (section 4) with correct CRC.
+  2. Firmware validates the frame and CRC.
+  3. Firmware responds with one 20-byte measurement frame (section 5).
+
+Retry policy, timeouts, and link framing (e.g. how ESC is distinguished from
+binary inside a stream) are implementation-defined on both sides.
+
+================================================================================
+8. LEGACY AND ON-THE-WIRE COMPATIBILITY
+================================================================================
+
+  v0.5 is not on-the-wire compatible with v0.4.1:
+    - Request length changed from 9 bytes to 10 bytes; framing and magic bytes
+      differ (ESC-led request with fixed template).
+    - Results changed from three 9-byte DATA frames to one 20-byte ESC-led
+      frame.
+
+  v0.4.1 CTRL / INDEX / P1-P6 commands, STATUS, RESET, and the three DATA frame
+  layout are superseded by this document for implementations claiming v0.5.
+
+================================================================================
+END OF PROTOCOL SPECIFICATION v0.5
+================================================================================
+
+Document: VTTester_Protocol_v0.5.txt
+Version: 0.5
+
+================================================================================

@@ -1,1 +1,12 @@
+Cython>=3
+click>=8.0
+matplotlib
+numpy
+py-opencv
+pandas
+pip
+PySide6
+scikit-learn
+scipy
+pyinstaller
 pyserial>=3.5

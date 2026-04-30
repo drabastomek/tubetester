@@ -1,5 +1,5 @@
 """
-Serial link to ATmega running VTTester v0.4.1 (9600 8N1 default).
+Serial link to VTTester firmware (v0.5 wire format, 9600 8N1 default).
 
 Run from repo with PYTHONPATH including ./src, e.g.:
 
@@ -14,11 +14,13 @@ from typing import Iterator
 import serial
 
 from backend.communication.protocol import (
-    FRAME_BYTES,
-    Frame,
-    build_set_frame,
-    build_status_frame,
-    pack_index,
+    FrameSize,
+    ResponseCode,
+    CommandCode,
+    ErrorCode,
+    ResetKind,
+    prepare_request,
+    parse_response,
 )
 
 DEFAULT_BAUD = 9600
@@ -50,86 +52,81 @@ class VTTesterSerial:
     def __exit__(self, *exc: object) -> None:
         self.close()
 
-    def write_raw(self, data: bytes) -> None:
-        self._ser.write(data)
+    def send_message(self, frame: bytes) -> None:
+        if len(frame) != FrameSize.FRAME_RX_BYTES:
+            raise ValueError(f"request must be {FrameSize.FRAME_RX_BYTES} bytes")
+        self._ser.write(frame)
         self._ser.flush()
-
-    def write_frame(self, frame9: bytes) -> None:
-        if len(frame9) != FRAME_BYTES:
-            raise ValueError(f"frame must be {FRAME_BYTES} bytes")
-        self.write_raw(frame9)
-
-    def read_frame(self, deadline: float | None = None) -> Frame | None:
-        """
-        Read exactly one validated 9-byte frame.
-        If `deadline` is set (monotonic time), return None when time expires with no full frame.
-        """
-        buf = bytearray()
-        while len(buf) < FRAME_BYTES:
-            if deadline is not None and time.monotonic() > deadline:
-                return None
-            chunk = self._ser.read(FRAME_BYTES - len(buf))
-            if not chunk:
-                continue
-            buf.extend(chunk)
-        try:
-            return Frame.from_bytes_wire(bytes(buf))
-        except ValueError:
-            return None
 
     def drain(self) -> None:
         self._ser.reset_input_buffer()
 
-    def frames_after_set(
+    def _read_exact(self, n: int) -> bytes | None:
+        buf = bytearray()
+        while len(buf) < n:
+            chunk = self._ser.read(n - len(buf))
+            if chunk:
+                buf.extend(chunk)
+        return bytes(buf)
+
+    def get_response(self, first_byte: bytes, frame_size: int) -> bytes:
+        remainder = self._read_exact(frame_size - 1)
+        if not remainder:
+            return None
+        full_frame = first_byte + remainder
+        try:
+            return parse_response(full_frame)
+        except ValueError:
+            return None
+
+    def read_response(self):
+        """
+        Read one MCU frame. Length follows the tag (firmware communication.c):
+        RSP_ACK / RSP_USER_BREAK → 2 B; RSP_ALARM → 3 B; RSP_ERROR → 3 B or 5 B
+        (ERR_OUT_OF_RANGE + param + value low + CRC); RSP_DATA → 19 B.
+        Returns None on timeout or malformed frame.
+        """
+        first_byte = self._read_exact(1)
+        if not first_byte:
+            return None
+        tag = first_byte[0]
+
+        match tag:
+            case ResponseCode.RSP_ACK | ResponseCode.RSP_USER_BREAK:
+                return self.get_response(first_byte, FrameSize.FRAME_TX_ACK)
+            case ResponseCode.RSP_ALARM:
+                return self.get_response(first_byte, FrameSize.FRAME_TX_ERROR)
+                # return ResponseCode.RSP_ALARM/
+            case ResponseCode.RSP_ERROR:
+                return ResponseCode.RSP_ERROR
+            case ResponseCode.RSP_DATA:
+                return self.get_response(first_byte, FrameSize.FRAME_TX_DATA)
+            case _:
+                return None
+
+    def send_set(
         self,
-        *,
-        idx: int | None = None,
-        heater_p1: int = 63,
-        ua_12: int = 200,
-        ug2_12: int = 150,
-        p5_ug1_mag: int = 10,
-        p6_time_idx: int = 10,
-        total_timeout_s: float = 2.0,
-    ) -> list[Frame]:
-        """
-        Send SET with draft-safe parameters, collect responses until idle or timeout.
-        Firmware returns ACK + 3 DATA frames (4 total) for a valid SET.
+        a1_a2: int,
+        ug: int,
+        uh: int,
+        ih: int,
+        ua: int,
+        ue: int,
+        timeout_s: float = 0.5,
+    ):
+        frame = prepare_request(CommandCode.CMD_SET, a1_a2, ug, uh, ih, ua, ue)
+        self.send_message(frame)
+        r = self.read_response()
+        return r
 
-        idx: default v0.4.1 double triode, system 1, parallel heater (pack_index(1,1,0)).
-        heater_p1: 63 = 6.3 V in 0.1 V steps (parallel) per §6.
-        ua_12 / ug2_12: 12-bit setpoint encoding (§6).
-        """
-        self.drain()
-        if idx is None:
-            idx = pack_index(1, 1, 0)
-        req = build_set_frame(
-            idx,
-            heater_p1,
-            ua_12,
-            ug2_12,
-            p5_ug1_mag,
-            p6_time_idx,
-        )
-        self.write_frame(req)
-        end = time.monotonic() + total_timeout_s
-        out: list[Frame] = []
-        for _ in range(4):
-            f = self.read_frame(deadline=end)
-            if f is None:
-                break
-            out.append(f)
-        return out
+    def send_reset(self, reset_kind: int):
+        frame = prepare_request(CommandCode.CMD_RESET, reset_kind)
+        self.send_message(frame)
+        r = self.read_response()
+        return r
 
-    def status(self) -> Frame | None:
-        self.drain()
-        frame = build_status_frame(0)
-        self.write_frame(frame)
-        end = time.monotonic() + 0.5
-        return self.read_frame(deadline=end)
-
-    def iter_bytes(self) -> Iterator[int]:
-        """Low-level: raw RX bytes (for debugging sync)."""
-        while True:
-            b = self._ser.read(1)
-            if b:
-                yield b[0]
+    def get_status(self):
+        frame = prepare_request(CommandCode.CMD_STATUS)
+        self.send_message(frame)
+        r = self.read_response()
+        return r

@@ -21,3 +21,7 @@ AGENTS.md
 
 // no archives
 *.zip
+
+temp/
+
+*code-workspace
