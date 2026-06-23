@@ -1,3 +1,7 @@
+/*
+ * Legacy comms-test main — superseded by test_protocol_harness/main.c.
+ * The harness build (make -C firmware) no longer compiles this file.
+ */
 #include <avr/io.h>
 #include <avr/interrupt.h>
 
@@ -145,20 +149,20 @@ static void handle_rx_msg(const uint8_t *rq)
 		break;
 
 	case CMD_STATUS:
-		// send DATA
 		send_data(
-			tp.a1_a2, 
+			tp.a1_a2,
 			(uint16_t[]){
+				mugadc,
 				muhadc,
 				mihadc,
-				mugadc,
 				muaadc,
 				miaadc,
 				mueadc,
 				mieadc,
 				mtmadc
-			}, 
-			8);
+			},
+			8,
+			0u);
 		break;
 
 	default:

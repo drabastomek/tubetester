@@ -3,6 +3,28 @@
 All notable changes to the VTTester communication protocol (Desktop Application <-> Firmware, REMOTE mode) are documented here.
 
 ---
+## [0.5] – 2026-06-23
+
+### Changed (breaking vs v0.4.1)
+- **On-the-wire incompatibility** — v0.5 is not compatible with v0.4.1 framing, magic bytes, or multi-frame results.
+- **PC → firmware request** — One fixed **10-byte** frame (was **9-byte** CTRL / INDEX / P1–P6). **Byte 9** is CRC-8 over bytes **0–8**.
+- **Firmware → PC response** — One fixed **20-byte** measurement frame (was **three** 9-byte DATA frames). **Byte 19** is CRC-8 over bytes **0–18**.
+- **Command encoding** — **Byte 0 (CMD)**: `0x00` SET, `0x01` RESET, `0x02` STATUS (replaces v0.4.1 CTRL bits and separate STATUS/RESET codes). Bits 2–7 reserved.
+- **SET payload** — Raw voltage/current fields replace index-based P1–P6: **A1_A2** (anode/system), **UG** (Ug1, default `0xFF` → −25.5 V), **UH** / **IH** (heater; if Uh = 0, IH carries series-heater current), **UA** and **UE** (Ug2) as **uint16 LE** pairs in bytes 5–8.
+- **DATA payload** — Single frame with **CMD** `0x00` (DATA) or `0x01` (ERROR), **A1_A2** echo, then **uint16 LE** raw ADC **sums** (64 samples each): Ug, Uh, Ih, Ua, Ia, Ue, Ie; **TML/TMH** (bytes 16–17) reserved/undefined in this revision; **ERR** (byte 18) status/alarm bits; scaling to engineering units is out of band.
+- **ERR byte (byte 18)** — **RNG200** (bit 7), bits 6–4 reserved, **OVERTM** (3), **OVERIE** (2), **OVERIA** (1), **OVERIH** (0). Replaces v0.4.1 alarm layout in DATA frame 3.
+- **Measurement flow** — PC sends 10-byte request → firmware validates CRC → firmware sends one 20-byte response. No v0.4.1 ACK/BUSY intermediate responses.
+- **CRC error handling** — Receiver must **discard** the frame and not act on it (no v0.4.1 ERROR + R1=CRC_ERROR reply). Same CRC-8 polynomial **0x07** as v0.4.1.
+
+### Removed
+- **v0.4.1 CTRL / INDEX / P1–P6** request layout and the three 9-byte DATA result frames.
+- **ACK / BUSY / ERROR / ALARM** response framing from v0.4.1 (superseded by response CMD and ERR byte).
+- **Index-based SET encoding on the wire** — tube setup and catalog handling are outside the v0.5 document unless added in a later revision.
+
+### Document
+- **Standalone v0.5 specification** — See `VTTester_Protocol_v0.5.txt`.
+
+---
 ## [0.4.1] – 2026-03-29
 
 ### Changed (breaking vs v0.4)
@@ -100,4 +122,4 @@ All notable changes to the VTTester communication protocol (Desktop Application 
 
 *Document: CHANGELOG.md  
 Location: firmware/protocol/  
-Last updated: 2026-03-29*
+Last updated: 2026-06-23*

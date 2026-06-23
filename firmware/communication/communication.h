@@ -4,10 +4,12 @@
 #include <stdint.h>
 
 // FRAME LENGTHS
-#define FRAME_RX_BYTES 10u
-#define FRAME_TX_DATA  19u
-#define FRAME_TX_ACK   2u
-#define FRAME_TX_ERROR 3u
+#define FRAME_RX_BYTES     10u
+#define FRAME_TX_DATA      20u
+#define FRAME_TX_DATA_ERR  18u
+#define DATA_CHANNEL_COUNT 8u
+#define FRAME_TX_ACK       2u
+#define FRAME_TX_ERROR     3u
 #define FRAME_TX_OOR_ERROR 5u
 
 // COMMAND CODES
@@ -39,6 +41,13 @@
 #define OVERIA  0x02u    // znacznik bledu IA
 #define OVERIG  0x04u    // znacznik bledu IG2
 #define OVERTE  0x08u    // znacznik wzrostu temperatury
+
+/* ERR byte in 20-byte DATA response (v0.5 §6). */
+#define ERR_RNG200 0x80u
+#define ERR_OVERTM 0x08u
+#define ERR_OVERIE 0x04u
+#define ERR_OVERIA 0x02u
+#define ERR_OVERIH 0x01u
 
 // PARAMETER IDS
 #define PARAM_ID_UH 0x01u
@@ -76,8 +85,8 @@ void send_alarm(uint8_t alarm_code);
 // send INPUT RANGE ERROR
 void send_input_range_error(uint8_t parameter_id, uint16_t value);
 
-// send DATA
-void send_data(uint8_t a1_a2, uint16_t *data, uint8_t length);
+// send DATA (8 uint16 LE channels + ERR + CRC per v0.5 §5)
+void send_data(uint8_t a1_a2, uint16_t *data, uint8_t length, uint8_t err);
 
 // send USER_BREAK
 void send_user_break(void);

@@ -1,5 +1,5 @@
-# comms-testing — UART harness only (communication/ + minimal config).
-# Friend’s full tree replaces config/ and this main; keep communication/ as the shared API.
+# Protocol test harness — ATmega32A (UART stub for desktop testing).
+# Builds comms_test_avr.hex from test_protocol_harness/ + communication/ + config/.
 
 MCU     = atmega32a
 F_CPU   = 16000000
@@ -7,22 +7,49 @@ TARGET  = comms_test_avr
 BINDIR  = bin
 ELF     = $(BINDIR)/$(TARGET).elf
 HEX     = $(BINDIR)/$(TARGET).hex
-OBJ     = $(BINDIR)/TTesterLCD32.o $(BINDIR)/config.o $(BINDIR)/communication.o
+
+HARNESS_DIR = test_protocol_harness
 
 CC      = avr-gcc
 OBJCOPY = avr-objcopy
 SIZE    = avr-size
 
 CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL -Os -Wall -Wextra -g
-CFLAGS += -I. -Iconfig -Icommunication
+CFLAGS += -I. -Iconfig -Icommunication -I$(HARNESS_DIR)
 CFLAGS += -funsigned-char
 CFLAGS += -ffunction-sections -fdata-sections
 LDFLAGS = -Wl,--gc-sections
 
-# Optional ASCII line on boot so screen/minicom shows life (binary protocol is otherwise silent).
+# Harness flow: split (default) or auto-measure after SET.
+HARNESS_FLOW ?= split
+ifeq ($(HARNESS_FLOW),auto)
+CFLAGS += -DHARNESS_FLOW=HARNESS_FLOW_AUTO_MEASURE
+else
+CFLAGS += -DHARNESS_FLOW=HARNESS_FLOW_SPLIT
+endif
+
+ifneq ($(HARNESS_MEAS_DELAY_MS),)
+CFLAGS += -DHARNESS_MEAS_DELAY_MS=$(HARNESS_MEAS_DELAY_MS)
+endif
+
+ifneq ($(HARNESS_TX_DELAY_MS),)
+CFLAGS += -DHARNESS_TX_DELAY_MS=$(HARNESS_TX_DELAY_MS)
+endif
+
 ifeq ($(COMMS_DEBUG_BOOT),1)
 CFLAGS += -DCOMMS_DEBUG_BOOT
 endif
+
+HARNESS_SRCS = \
+	$(HARNESS_DIR)/main.c \
+	$(HARNESS_DIR)/harness_command.c \
+	$(HARNESS_DIR)/harness_tick.c \
+	$(HARNESS_DIR)/scenario.c \
+	$(HARNESS_DIR)/synthetic_measure.c
+
+HARNESS_OBJS = $(HARNESS_SRCS:$(HARNESS_DIR)/%.c=$(BINDIR)/harness_%.o)
+COMMON_OBJS  = $(BINDIR)/config.o $(BINDIR)/communication.o
+OBJ            = $(HARNESS_OBJS) $(COMMON_OBJS)
 
 .PHONY: all clean size flash flash-slow probe chip-prep read-fuses hex
 
@@ -37,7 +64,7 @@ $(ELF): $(OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJ)
 	@$(SIZE) $@
 
-$(BINDIR)/TTesterLCD32.o: TTesterLCD32.c config/config.h communication/communication.h | $(BINDIR)
+$(BINDIR)/harness_%.o: $(HARNESS_DIR)/%.c | $(BINDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BINDIR)/config.o: config/config.c config/config.h | $(BINDIR)

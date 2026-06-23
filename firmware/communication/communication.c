@@ -85,16 +85,18 @@ void send_alarm(uint8_t alarm_code)
 }
 
 // send DATA
-void send_data(uint8_t a1_a2, uint16_t *data, uint8_t length)
+void send_data(uint8_t a1_a2, uint16_t *data, uint8_t length, uint8_t err)
 {
+	uint8_t i;
+
 	out_data_t[0] = RSP_DATA;
 	out_data_t[1] = a1_a2;
 
-	for (uint8_t i = 0; i < length; i++)
-	{
-		out_data_t[2 * i + 2u] = LOW(data[i]);  // we've loaded the first two bytes already
-		out_data_t[2 * i + 3u] = HIGH(data[i]);
+	for (i = 0; i < length && i < DATA_CHANNEL_COUNT; i++) {
+		out_data_t[2u * i + 2u] = LOW(data[i]);
+		out_data_t[2u * i + 3u] = HIGH(data[i]);
 	}
+	out_data_t[FRAME_TX_DATA_ERR] = err;
 	out_data_t[FRAME_TX_DATA - 1u] = comm_crc8_run(out_data_t, FRAME_TX_DATA - 1u);
 	send_message(out_data_t, FRAME_TX_DATA);
 }
@@ -144,10 +146,8 @@ uint8_t* comm_rx_msg(void)
 
 	host_ready = 0;
 
-	if (comm_crc8_run(in_msg_t, 9u) != in_msg_t[9]){
-		send_error(VTT_ERR_CRC);
+	if (comm_crc8_run(in_msg_t, FRAME_RX_BYTES - 1u) != in_msg_t[FRAME_RX_BYTES - 1u])
 		return NULL;
-	}
 
 	return in_msg_t;
 }
