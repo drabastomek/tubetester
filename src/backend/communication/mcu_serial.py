@@ -62,48 +62,62 @@ class VTTesterSerial:
         buf = bytearray()
         while len(buf) < n:
             chunk = self._ser.read(n - len(buf))
-            if chunk:
-                buf.extend(chunk)
+            if not chunk:
+                return None
+            buf.extend(chunk)
         return bytes(buf)
 
-    def get_response(self, first_byte: bytes, frame_size: int) -> bytes:
-        remainder = self._read_exact(frame_size - 1)
-        if not remainder:
+    def _read_and_parse(self, prefix: bytes, frame_size: int):
+        """Read ``frame_size - len(prefix)`` bytes and parse the full frame."""
+        rest = self._read_exact(frame_size - len(prefix))
+        if rest is None:
             return None
-        full_frame = first_byte + remainder
         try:
-            return parse_response(full_frame)
+            return parse_response(prefix + rest)
         except ValueError:
             return None
 
-    def read_response(self):
+    def get_response(self, first_byte: bytes, frame_size: int):
+        return self._read_and_parse(first_byte, frame_size)
+
+    def read_response(self, timeout_s: float | None = None):
         """
         Read one MCU frame. Length follows the tag (firmware communication.c):
         RSP_ACK / RSP_USER_BREAK → 2 B; RSP_ALARM / RSP_ERROR → 3 B or 5 B
         (ERR_OUT_OF_RANGE); RSP_DATA → 20 B (v0.5 §5).
         Returns None on timeout or malformed frame.
         """
-        first_byte = self._read_exact(1)
-        if not first_byte:
-            return None
-        tag = first_byte[0]
-
-        match tag:
-            case ResponseCode.RSP_ACK | ResponseCode.RSP_USER_BREAK:
-                return self.get_response(first_byte, FrameSize.FRAME_TX_ACK)
-            case ResponseCode.RSP_ALARM:
-                return self.get_response(first_byte, FrameSize.FRAME_TX_ERROR)
-            case ResponseCode.RSP_ERROR:
-                second = self._read_exact(1)
-                if not second:
-                    return None
-                if second[0] == ErrorCode.ERR_OUT_OF_RANGE:
-                    return self.get_response(first_byte + second, FrameSize.FRAME_TX_OOR_ERROR)
-                return self.get_response(first_byte + second, FrameSize.FRAME_TX_ERROR)
-            case ResponseCode.RSP_DATA:
-                return self.get_response(first_byte, FrameSize.FRAME_TX_DATA)
-            case _:
+        old_timeout = self._ser.timeout
+        if timeout_s is not None:
+            self._ser.timeout = timeout_s
+        try:
+            first_byte = self._read_exact(1)
+            if not first_byte:
                 return None
+            tag = first_byte[0]
+
+            match tag:
+                case ResponseCode.RSP_ACK | ResponseCode.RSP_USER_BREAK:
+                    return self.get_response(first_byte, FrameSize.FRAME_TX_ACK)
+                case ResponseCode.RSP_ALARM:
+                    return self.get_response(first_byte, FrameSize.FRAME_TX_ERROR)
+                case ResponseCode.RSP_ERROR:
+                    second = self._read_exact(1)
+                    if not second:
+                        return None
+                    prefix = first_byte + second
+                    if second[0] == ErrorCode.ERR_OUT_OF_RANGE:
+                        return self._read_and_parse(
+                            prefix, FrameSize.FRAME_TX_OOR_ERROR
+                        )
+                    return self._read_and_parse(prefix, FrameSize.FRAME_TX_ERROR)
+                case ResponseCode.RSP_DATA:
+                    return self.get_response(first_byte, FrameSize.FRAME_TX_DATA)
+                case _:
+                    return None
+        finally:
+            if timeout_s is not None:
+                self._ser.timeout = old_timeout
 
     def send_set(
         self,

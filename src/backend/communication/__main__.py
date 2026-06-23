@@ -1,6 +1,8 @@
 import argparse
 import sys
 
+import serial
+
 from backend.communication.mcu_serial import VTTesterSerial
 from backend.communication.protocol import ResetKind
 
