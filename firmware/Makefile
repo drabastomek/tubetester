@@ -42,6 +42,7 @@ endif
 
 HARNESS_SRCS = \
 	$(HARNESS_DIR)/main.c \
+	$(HARNESS_DIR)/harness_beep.c \
 	$(HARNESS_DIR)/harness_command.c \
 	$(HARNESS_DIR)/harness_tick.c \
 	$(HARNESS_DIR)/scenario.c \

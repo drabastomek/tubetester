@@ -65,8 +65,8 @@ The firmware treats a valid request as a frame matching all of the following
 
  Byte | Field (mnemonic) | Value (hex) | Description
 ------|------------------|-------------|------------------------------------------
-  0   | CMD              | 0x00        | Command: 0x00 - SET, 0x01 - RESET, 0x02 - STATUS
-      |                  |             | Bits 2-7 reserved
+  0   | CMD              | 0x00        | Command: 0x00 SET, 0x01 RESET, 0x02 STATUS, 0x03 BEEP
+      |                  |             | Bits 3-7 reserved when CMD uses values 0x00-0x03
   1   | A1_A2            | 0x30        | Anode / system selector (default '0') 
       |                  |             | this shold be a bit or we bundle it in CMD
   2   | UG               | 0xFF        | Ug G1 voltage (default 255 --> -25.5V)
@@ -82,6 +82,23 @@ Note: Bytes 2-3 form the little-endian uint16 value 0x00FF (255) on the wire
 for the Ug pair in the request template. Bytes 4-8 are validated as zero in the
 reference firmware condition you provided; extend semantics here if future
 revisions use non-zero placeholders.
+
+================================================================================
+4.1 BEEP (CMD 0x03)
+================================================================================
+
+Play the instrument buzzer (non-blocking on the PC; firmware may hold the line
+briefly while the tone is active).
+
+ Byte | Field | Description
+------|-------|----------------------------------------------------------
+  0   | CMD   | 0x03
+  1   | DUR   | Tone duration in 10 ms units. 0 = default (50 ms).
+  2-8 | —     | Reserved; send 0. Future: pattern id, repeat count.
+  9   | CRC   | CRC-8 of bytes 0-8
+
+Firmware response: **ACK** (2 bytes) after the command is accepted. The PC should
+not wait for the tone to finish; use the same timeout as for SET/RESET ACK.
 
 ================================================================================
 5. FIRMWARE -> PC — MEASUREMENT RESPONSE (20 BYTES)

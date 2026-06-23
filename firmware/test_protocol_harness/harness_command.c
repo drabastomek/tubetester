@@ -1,5 +1,6 @@
 #include "communication/communication.h"
 #include "config/config.h"
+#include "harness_beep.h"
 #include "harness_command.h"
 #include "harness_config.h"
 #include "scenario.h"
@@ -56,6 +57,9 @@ void harness_command_handle(const uint8_t *rq)
 {
 	uint8_t cmd;
 
+	if (scenario_apply_inbound_fault())
+		return;
+
 	cmd = rq[0];
 
 	switch (cmd) {
@@ -71,8 +75,14 @@ void harness_command_handle(const uint8_t *rq)
 		s_params.ueset = (uint16_t)rq[7] | ((uint16_t)rq[8] << 8);
 
 		harness_tx_delay();
-		send_ack();
+		if (scenario_apply_set_fault())
+			break;
+
+#if HARNESS_FLOW == HARNESS_FLOW_AUTO_MEASURE
 		scenario_on_set_accepted(s_params.a1_a2);
+#else
+		send_ack();
+#endif
 		break;
 
 	case CMD_RESET:
@@ -90,8 +100,25 @@ void harness_command_handle(const uint8_t *rq)
 		break;
 
 	case CMD_STATUS:
+		/* Harness-only: arm fault injection (A1_A2='H', ih= fault id). */
+		if (rq[1] == (uint8_t)'H') {
+			scenario_arm_fault(rq[4]);
+			harness_tx_delay();
+			send_ack();
+			break;
+		}
+
 		harness_tx_delay();
+		if (scenario_apply_status_fault())
+			break;
+
 		scenario_send_status_data(s_params.a1_a2);
+		break;
+
+	case CMD_BEEP:
+		harness_tx_delay();
+		harness_beep_play(rq[1]);
+		send_ack();
 		break;
 
 	default:

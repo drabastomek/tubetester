@@ -7,12 +7,53 @@
 static uint8_t s_pending_auto_data;
 static uint8_t s_auto_a1_a2;
 static uint16_t s_auto_deadline_ms;
+static uint8_t s_armed_fault;
 
 void scenario_init(void)
 {
 	s_pending_auto_data = 0u;
 	s_auto_a1_a2 = (uint8_t)'0';
 	s_auto_deadline_ms = 0u;
+	s_armed_fault = 0u;
+}
+
+void scenario_arm_fault(uint8_t fault_id)
+{
+	s_armed_fault = fault_id;
+}
+
+uint8_t scenario_peek_fault(void)
+{
+	return s_armed_fault;
+}
+
+uint8_t scenario_apply_inbound_fault(void)
+{
+	if (s_armed_fault != HARNS_FAULT_SILENT_ONCE)
+		return 0u;
+
+	s_armed_fault = 0u;
+	return 1u;
+}
+
+uint8_t scenario_apply_set_fault(void)
+{
+	if (s_armed_fault != HARNS_FAULT_ALARM_ON_SET)
+		return 0u;
+
+	s_armed_fault = 0u;
+	send_alarm(OVERIH);
+	return 1u;
+}
+
+uint8_t scenario_apply_status_fault(void)
+{
+	if (s_armed_fault != HARNS_FAULT_HWERR_ON_STATUS)
+		return 0u;
+
+	s_armed_fault = 0u;
+	send_error(VTT_ERR_HARDWARE);
+	return 1u;
 }
 
 void scenario_send_status_data(uint8_t a1_a2)

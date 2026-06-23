@@ -3,6 +3,12 @@
 All notable changes to the VTTester communication protocol (Desktop Application <-> Firmware, REMOTE mode) are documented here.
 
 ---
+## [0.5.1] – 2026-06-23
+
+### Added
+- **BEEP (CMD 0x03)** — Play instrument buzzer. Request byte 1 (**DUR**) = tone length in 10 ms units (0 → 50 ms default). Bytes 2–8 reserved. Response: **ACK** (2 B). See v0.5 spec §4.1.
+
+---
 ## [0.5] – 2026-06-23
 
 ### Changed (breaking vs v0.4.1)

@@ -19,7 +19,7 @@ Output: `firmware/bin/comms_test_avr.hex`
 
 | Variable | Default | Effect |
 |----------|---------|--------|
-| `HARNESS_FLOW=auto` | split | `auto` → SET schedules DATA after `HARNESS_MEAS_DELAY_MS` |
+| `HARNESS_FLOW=auto` | split | `auto` → SET emits DATA after delay (no ACK) |
 | `HARNESS_MEAS_DELAY_MS=50` | 50 | Auto-measure delay (only with `HARNESS_FLOW=auto`) |
 | `HARNESS_TX_DELAY_MS=0` | 0 | Milliseconds to wait before each TX reply |
 | `COMMS_DEBUG_BOOT=1` | off | Reserved hook (no output yet) |
@@ -43,6 +43,13 @@ make flash-slow
 
 MCU: **ATmega32A**, 16 MHz, **9600 8N1** (same as production tester).
 
+## Desktop measurement flow
+
+Production sequence (SET → wait 125 ms → STATUS stability loop) is documented in  
+[`src/backend/MEASUREMENT_FLOW.md`](../../src/backend/MEASUREMENT_FLOW.md).
+
+Use **split-mode** harness (`make` default) — desktop owns timing, not the MCU.
+
 ## Desktop tests
 
 **Tier A** (no hardware):
@@ -55,14 +62,18 @@ pytest -m "not hardware"
 
 ```bash
 export VTTESTER_PORT=/dev/cu.usbserial-0001
-pytest -m hardware
+pytest -m hardware                      # all scenarios
+pytest -m hardware --scenario beep      # one scenario
+
+PYTHONPATH=src python -m backend.communication.harness_client $VTTESTER_PORT --scenario beep
 ```
 
-**Scenario runner** (manual, verbose):
+**Auto-measure** (optional, not production flow — see MEASUREMENT_FLOW.md):
 
 ```bash
-PYTHONPATH=src python -m backend.communication.harness_client $VTTESTER_PORT
-PYTHONPATH=src python -m backend.communication.harness_client $VTTESTER_PORT --scenario out_of_range
+make -C firmware HARNESS_FLOW=auto HARNESS_MEAS_DELAY_MS=100 flash
+export VTTESTER_RUN_AUTO_MEASURE=1
+pytest -m hardware src/backend/communication/tests/test_auto_measure_serial.py
 ```
 
 ## Layout

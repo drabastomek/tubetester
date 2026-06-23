@@ -16,6 +16,10 @@
 #define CMD_SET    0x00u
 #define CMD_RESET  0x01u
 #define CMD_STATUS 0x02u
+#define CMD_BEEP   0x03u
+
+#define BEEP_DUR_DEFAULT 5u   /* 50 ms when DUR byte is 0 */
+#define BEEP_DUR_UNIT_MS 10u
 
 // RESPONSE CODES
 #define RSP_DATA       0x00u
