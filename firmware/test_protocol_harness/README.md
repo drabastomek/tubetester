@@ -43,13 +43,26 @@ make flash-slow
 
 MCU: **ATmega32A**, 16 MHz, **9600 8N1** (same as production tester).
 
-## Desktop smoke test
+## Desktop tests
 
-With the harness flashed and USB-serial connected:
+**Tier A** (no hardware):
 
 ```bash
-cd /path/to/tubetester
-PYTHONPATH=src python -m backend.communication /dev/cu.YourSerialPort
+pytest -m "not hardware"
+```
+
+**Tier B** (harness flashed, USB-serial connected):
+
+```bash
+export VTTESTER_PORT=/dev/cu.usbserial-0001
+pytest -m hardware
+```
+
+**Scenario runner** (manual, verbose):
+
+```bash
+PYTHONPATH=src python -m backend.communication.harness_client $VTTESTER_PORT
+PYTHONPATH=src python -m backend.communication.harness_client $VTTESTER_PORT --scenario out_of_range
 ```
 
 ## Layout

@@ -70,7 +70,6 @@ void send_input_range_error(uint8_t parameter_id, uint16_t value)
 	out_oor_error_t[1] = VTT_ERR_OUT_OF_RANGE;
 	out_oor_error_t[2] = parameter_id;
 	out_oor_error_t[3] = LOW(value);
-	out_oor_error_t[4] = HIGH(value);
 	out_oor_error_t[FRAME_TX_OOR_ERROR - 1u] = comm_crc8_run(out_oor_error_t, FRAME_TX_OOR_ERROR - 1u);
 	send_message(out_oor_error_t, FRAME_TX_OOR_ERROR);
 }
