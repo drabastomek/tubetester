@@ -17,7 +17,7 @@ from typing import Any
 import serial
 
 from backend.communication.mcu_serial import VTTesterSerial
-from backend.communication.protocol import Data, OutOfRangeError
+from backend.communication.protocol import Data, OutOfRangeError, ProtocolError
 
 
 @dataclass
@@ -36,15 +36,6 @@ class ScenarioError(AssertionError):
 
 def format_hex(data: bytes) -> str:
     return " ".join(f"{b:02x}" for b in data)
-
-
-def _check_fields(data: Data, expect_fields: dict[str, Any]) -> None:
-    for key, expected in expect_fields.items():
-        actual = getattr(data, key)
-        if actual != expected:
-            raise ScenarioError(
-                f"field {key}: expected {expected!r}, got {actual!r}"
-            )
 
 
 def run_step(link: VTTesterSerial, step: Step) -> Any:
@@ -75,9 +66,7 @@ def run_step(link: VTTesterSerial, step: Step) -> Any:
         )
 
     if step.expect_fields:
-        if isinstance(response, Data):
-            _check_fields(response, step.expect_fields)
-        elif isinstance(response, OutOfRangeError):
+        if isinstance(response, (Data, OutOfRangeError, ProtocolError)):
             for key, expected in step.expect_fields.items():
                 actual = getattr(response, key)
                 if actual != expected:

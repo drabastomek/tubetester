@@ -10,7 +10,6 @@ from backend.communication.scenarios import SCENARIOS
 
 
 @pytest.mark.hardware
-@pytest.mark.parametrize("scenario_name", sorted(SCENARIOS))
 def test_harness_scenario(harness_port, scenario_name):
     steps = SCENARIOS[scenario_name]
     with VTTesterSerial(harness_port, timeout=0.2) as link:

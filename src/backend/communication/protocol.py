@@ -15,6 +15,13 @@ class CommandCode:
     CMD_SET = 0x00
     CMD_RESET = 0x01
     CMD_STATUS = 0x02
+    CMD_BEEP = 0x03
+
+class BeepDuration:
+    """DUR byte: duration in 10 ms units; 0 = firmware default (50 ms)."""
+    DEFAULT = 0
+    UNIT_MS = 10
+    FIRMWARE_DEFAULT_MS = 50
 
 class ResponseCode:
     RSP_DATA = 0x00
@@ -43,6 +50,11 @@ class ErrBits:
     OVERIA = 0x02
     OVERIH = 0x01
 
+
+# Desktop measurement timing — see src/backend/MEASUREMENT_FLOW.md
+STATUS_POLL_INTERVAL_MS = 125
+HEATER_PREHEAT_DEFAULT_S = 60
+
 # Maps reverse
 RESPONSE_MAP = {getattr(ResponseCode, name): name 
                 for name in dir(ResponseCode) 
@@ -56,6 +68,11 @@ PARAM_ID_IA = 0x05
 PARAM_ID_UE = 0x06
 PARAM_ID_IE = 0x07
 PARAM_ID_TM = 0x08
+
+# Harness-only fault ids (STATUS with A1_A2='H', ih byte).
+HARNS_FAULT_ALARM_ON_SET = 1
+HARNS_FAULT_SILENT_ONCE = 2
+HARNS_FAULT_HWERR_ON_STATUS = 3
 
 # CRC-8 poly 0x07, init 0 — same 256-byte table as firmware
 CRC8_TABLE: tuple[int, ...] = (
@@ -113,9 +130,57 @@ def prepare_request(
             params = (CommandCode.CMD_RESET, reset_kind, 0, 0, 0, 0, 0, 0, 0)
         case CommandCode.CMD_STATUS:
             params = (CommandCode.CMD_STATUS, ord(a1_a2), 0, 0, 0, 0, 0, 0, 0)
+        case CommandCode.CMD_BEEP:
+            raise ValueError("use prepare_beep() for CMD_BEEP")
         case _:
             raise ValueError(f"Invalid command: {cmd}")
     return bytes(params + (crc8_run(bytes(params)),))
+
+
+def prepare_beep(duration_units: int = BeepDuration.DEFAULT) -> bytes:
+    """BEEP request (CMD 0x03). DUR = duration in 10 ms units; 0 → 50 ms default."""
+    params = (
+        CommandCode.CMD_BEEP,
+        duration_units & 0xFF,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    )
+    return bytes(params + (crc8_run(bytes(params)),))
+
+
+def prepare_harness_arm(fault_id: int) -> bytes:
+    """Harness-only: arm fault injection on the MCU (STATUS, A1_A2='H')."""
+    params = (
+        CommandCode.CMD_STATUS,
+        ord("H"),
+        0,
+        0,
+        fault_id & 0xFF,
+        0,
+        0,
+        0,
+        0,
+    )
+    return bytes(params + (crc8_run(bytes(params)),))
+
+
+def prepare_raw_request(payload: tuple[int, ...]) -> bytes:
+    """Build a 10-byte request from nine payload bytes (CRC appended)."""
+    if len(payload) != 9:
+        raise ValueError("payload must be 9 bytes")
+    body = bytes(payload)
+    return body + bytes([crc8_run(body)])
+
+
+def corrupt_crc(frame: bytes) -> bytes:
+    if len(frame) < 2:
+        raise ValueError("frame too short")
+    return frame[:-1] + bytes([(frame[-1] + 1) & 0xFF])
 
 
 def _le16(buf: bytes, off: int) -> int:

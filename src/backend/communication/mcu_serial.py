@@ -17,6 +17,7 @@ from backend.communication.protocol import (
     ErrorCode,
     ResetKind,
     prepare_request,
+    prepare_beep,
     parse_response,
 )
 
@@ -145,3 +146,8 @@ class VTTesterSerial:
         self.send_message(frame)
         r = self.read_response()
         return r
+
+    def send_beep(self, duration_units: int = 0):
+        frame = prepare_beep(duration_units)
+        self.send_message(frame)
+        return self.read_response()

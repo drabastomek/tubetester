@@ -7,12 +7,17 @@ from backend.communication.protocol import (
     Data,
     ErrorCode,
     FrameSize,
+    HARNS_FAULT_ALARM_ON_SET,
     OutOfRangeError,
     ProtocolError,
     ResetKind,
     ResponseCode,
+    corrupt_crc,
     crc8_run,
     parse_response,
+    prepare_beep,
+    prepare_harness_arm,
+    prepare_raw_request,
     prepare_request,
 )
 
@@ -60,6 +65,18 @@ class TestPrepareRequest:
         frame = prepare_request(CommandCode.CMD_STATUS, a1_a2="1")
         assert frame[0] == CommandCode.CMD_STATUS
         assert frame[1] == ord("1")
+
+    def test_beep_layout(self):
+        frame = prepare_beep(10)
+        assert len(frame) == FrameSize.FRAME_RX_BYTES
+        assert frame[0] == CommandCode.CMD_BEEP
+        assert frame[1] == 10
+        assert frame[2:9] == bytes(7)
+        assert frame[-1] == crc8_run(frame[:-1])
+
+    def test_beep_default(self):
+        frame = prepare_beep()
+        assert frame[1] == 0
 
 
 class TestParseResponse:
@@ -136,3 +153,23 @@ class TestParseResponse:
         frame = _with_crc([ResponseCode.RSP_DATA] + [0] * 17)
         with pytest.raises(ValueError, match="20 bytes"):
             parse_response(frame)
+
+
+class TestHarnessHelpers:
+    def test_prepare_harness_arm(self):
+        frame = prepare_harness_arm(HARNS_FAULT_ALARM_ON_SET)
+        assert len(frame) == FrameSize.FRAME_RX_BYTES
+        assert frame[0] == CommandCode.CMD_STATUS
+        assert frame[1] == ord("H")
+        assert frame[4] == HARNS_FAULT_ALARM_ON_SET
+
+    def test_prepare_raw_request(self):
+        frame = prepare_raw_request((0x7F,) + (0,) * 8)
+        assert len(frame) == FrameSize.FRAME_RX_BYTES
+        assert frame[-1] == crc8_run(frame[:-1])
+
+    def test_corrupt_crc_changes_last_byte(self):
+        good = prepare_request(CommandCode.CMD_STATUS)
+        bad = corrupt_crc(good)
+        assert bad[:-1] == good[:-1]
+        assert bad[-1] != good[-1]
