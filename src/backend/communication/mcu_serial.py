@@ -8,9 +8,6 @@ Run from repo with PYTHONPATH including ./src, e.g.:
 
 from __future__ import annotations
 
-import time
-from typing import Iterator
-
 import serial
 
 from backend.communication.protocol import (
@@ -82,8 +79,8 @@ class VTTesterSerial:
     def read_response(self):
         """
         Read one MCU frame. Length follows the tag (firmware communication.c):
-        RSP_ACK / RSP_USER_BREAK → 2 B; RSP_ALARM → 3 B; RSP_ERROR → 3 B or 5 B
-        (ERR_OUT_OF_RANGE + param + value low + CRC); RSP_DATA → 19 B.
+        RSP_ACK / RSP_USER_BREAK → 2 B; RSP_ALARM / RSP_ERROR → 3 B or 5 B
+        (ERR_OUT_OF_RANGE); RSP_DATA → 20 B (v0.5 §5).
         Returns None on timeout or malformed frame.
         """
         first_byte = self._read_exact(1)
@@ -96,9 +93,13 @@ class VTTesterSerial:
                 return self.get_response(first_byte, FrameSize.FRAME_TX_ACK)
             case ResponseCode.RSP_ALARM:
                 return self.get_response(first_byte, FrameSize.FRAME_TX_ERROR)
-                # return ResponseCode.RSP_ALARM/
             case ResponseCode.RSP_ERROR:
-                return ResponseCode.RSP_ERROR
+                second = self._read_exact(1)
+                if not second:
+                    return None
+                if second[0] == ErrorCode.ERR_OUT_OF_RANGE:
+                    return self.get_response(first_byte + second, FrameSize.FRAME_TX_OOR_ERROR)
+                return self.get_response(first_byte + second, FrameSize.FRAME_TX_ERROR)
             case ResponseCode.RSP_DATA:
                 return self.get_response(first_byte, FrameSize.FRAME_TX_DATA)
             case _:

@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Union
 
 # Frame size
 class FrameSize:
     FRAME_RX_BYTES = 10
-    FRAME_TX_DATA = 19
+    FRAME_TX_DATA = 20
+    FRAME_TX_DATA_ERR = 18
     FRAME_TX_ACK = 2
     FRAME_TX_ERROR = 3
     FRAME_TX_OOR_ERROR = 5
@@ -31,6 +33,15 @@ class ErrorCode:
     ERR_CRC = 0x03
     ERR_INVALID_CMD = 0x04
     ERR_HARDWARE = 0x06
+
+
+class ErrBits:
+    """ERR byte in 20-byte DATA response (v0.5 §6)."""
+    RNG200 = 0x80
+    OVERTM = 0x08
+    OVERIE = 0x04
+    OVERIA = 0x02
+    OVERIH = 0x01
 
 # Maps reverse
 RESPONSE_MAP = {getattr(ResponseCode, name): name 
@@ -111,16 +122,30 @@ def _le16(buf: bytes, off: int) -> int:
     return buf[off] | (buf[off + 1] << 8)
 
 @dataclass(frozen=True)
+class OutOfRangeError:
+    parameter_id: int
+    value: int
+    raw: bytes
+
+
+@dataclass(frozen=True)
+class ProtocolError:
+    code: int
+    raw: bytes
+
+
+@dataclass(frozen=True)
 class Data:
     a1_a2: str
+    ug_sum: int
     uh_sum: int
     ih_sum: int
-    ug_sum: int
     ua_sum: int
     ia_sum: int
     ue_sum: int
     ie_sum: int
     tm_sum: int
+    err: int
     raw: bytes
 
     @staticmethod
@@ -132,14 +157,15 @@ class Data:
 
         return Data(
             a1_a2=chr(buf[1]),
-            uh_sum=_le16(buf, 2),
-            ih_sum=_le16(buf, 4),
-            ug_sum=_le16(buf, 6),
+            ug_sum=_le16(buf, 2),
+            uh_sum=_le16(buf, 4),
+            ih_sum=_le16(buf, 6),
             ua_sum=_le16(buf, 8),
             ia_sum=_le16(buf, 10),
             ue_sum=_le16(buf, 12),
             ie_sum=_le16(buf, 14),
             tm_sum=_le16(buf, 16),
+            err=buf[FrameSize.FRAME_TX_DATA_ERR],
             raw=bytes(buf),
         )
     
@@ -155,27 +181,38 @@ class Data:
         str_prep += f"    UE: \t{ self.ue_sum / 64:4.2f} \tV\n"
         str_prep += f"    IE: \t{ self.ie_sum / 64 / 10.0:4.2f} \tmA\n"
         str_prep += f"    TM: \t{ self.tm_sum / 64:4.2f} \t°C\n"
+        str_prep += f"    ERR: \t0x{self.err:02x}\n"
         return str_prep
+
+def _parse_error_frame(buf: bytes):
+    if len(buf) < FrameSize.FRAME_TX_ERROR:
+        raise ValueError("ERROR frame too short")
+    if buf[0] != ResponseCode.RSP_ERROR:
+        raise ValueError(f"expected RSP_ERROR, got 0x{buf[0]:02x}")
+
+    code = buf[1]
+    if code == ErrorCode.ERR_OUT_OF_RANGE and len(buf) >= FrameSize.FRAME_TX_OOR_ERROR:
+        return OutOfRangeError(parameter_id=buf[2], value=buf[3], raw=bytes(buf))
+    return ProtocolError(code=code, raw=bytes(buf))
 
 def parse_response(buf: bytes):
     if not buf:
         raise ValueError("empty buffer")
     tag = buf[0]
-    crc = buf[-1]
 
-    if crc != crc8_run(buf[:-1]):
+    if crc8_run(buf[:-1]) != buf[-1]:
         raise ValueError("CRC mismatch")
 
     match tag:
-        case ResponseCode.RSP_ACK :
+        case ResponseCode.RSP_ACK:
             return RESPONSE_MAP[ResponseCode.RSP_ACK]
         case ResponseCode.RSP_USER_BREAK:
             return RESPONSE_MAP[ResponseCode.RSP_USER_BREAK]
         case ResponseCode.RSP_ALARM:
             return RESPONSE_MAP[ResponseCode.RSP_ALARM]
         case ResponseCode.RSP_ERROR:
-            return RESPONSE_MAP[ResponseCode.RSP_ERROR]
+            return _parse_error_frame(buf)
         case ResponseCode.RSP_DATA:
             return Data.from_bytes(buf)
         case _:
-            raise ValueError(f"unknown response tag: {RESPONSE_MAP[tag]}")
+            raise ValueError(f"unknown response tag: 0x{tag:02x}")
