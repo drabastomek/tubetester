@@ -34,6 +34,7 @@ def run(argv: list[str] | None = None) -> int:
     qt_app = create_app(argv)
     window = MainWindow(repo, serial_service)
     window.show()
+    window.try_auto_connect()
     code = qt_app.exec()
     conn.close()
     if serial_service.is_connected:

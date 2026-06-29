@@ -30,14 +30,22 @@ class SerialPortInfo:
         return self.hwid or self.device
 
 
+_NA_DESCRIPTIONS = frozenset({"", "n/a", "na"})
+
+
+def has_usable_port_name(description: str | None) -> bool:
+    """True when pyserial reported a human-readable port name (not N/A)."""
+    desc = (description or "").strip()
+    return bool(desc) and desc.lower() not in _NA_DESCRIPTIONS
+
+
 def format_port_label(
     *,
     device: str,
     description: str | None = None,
 ) -> str:
-    desc = (description or "").strip()
-    if desc and desc.lower() not in device.lower():
-        return f"{desc} — {device}"
+    """Text shown in the port picker — the OS device path (``/dev/cu.*``, ``COMn``, …)."""
+    del description  # name is used for filtering only, not display
     return device
 
 
@@ -54,32 +62,27 @@ def _info_from_list_port(port: object) -> SerialPortInfo:
     )
 
 
-def _prefer_macos_callout_ports(ports: Sequence[SerialPortInfo]) -> list[SerialPortInfo]:
-    """Drop ``/dev/tty.*`` when the matching ``/dev/cu.*`` port is present."""
-    if sys.platform != "darwin":
-        return list(ports)
-    devices = {p.device for p in ports}
-    kept: list[SerialPortInfo] = []
-    for port in ports:
-        if port.device.startswith("/dev/tty."):
-            cu = "/dev/cu." + port.device[len("/dev/tty.") :]
-            if cu in devices:
-                continue
-        kept.append(port)
-    return kept
+def _is_listable_port(port: SerialPortInfo) -> bool:
+    """Ports shown in the UI: named devices; on macOS, ``/dev/cu.*`` only."""
+    if not has_usable_port_name(port.description):
+        return False
+    if sys.platform == "darwin":
+        return port.device.startswith("/dev/cu.")
+    return True
 
 
 def list_serial_ports(*, include_all: bool = True) -> list[SerialPortInfo]:
     """
     Return serial ports available on this machine, sorted by label.
 
-    On macOS, hides paired ``/dev/tty.*`` entries when ``/dev/cu.*`` exists.
+    Skips unnamed / ``N/A`` entries. On macOS, only ``/dev/cu.*`` call-out devices
+    are returned. The combo shows each port's device path.
     """
     if comports is None:
         raise RuntimeError("pyserial is not installed")
 
     raw = [_info_from_list_port(p) for p in comports()]
-    filtered = _prefer_macos_callout_ports(raw)
+    filtered = [p for p in raw if _is_listable_port(p)]
     if not include_all:
         filtered = [p for p in filtered if _looks_like_usb_uart(p)]
     filtered.sort(key=lambda p: p.label.lower())

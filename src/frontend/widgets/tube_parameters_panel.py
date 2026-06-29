@@ -32,10 +32,7 @@ class TubeParametersPanel(QWidget):
         selection_row = QHBoxLayout(selection_box)
         self._tube_combo = QComboBox()
         self._tube_combo.currentIndexChanged.connect(self._on_tube_changed)
-        self._edit_btn = QPushButton("EDIT")
-        self._edit_btn.setEnabled(False)
-        selection_row.addWidget(self._tube_combo, stretch=1)
-        selection_row.addWidget(self._edit_btn)
+        selection_row.addWidget(self._tube_combo)
 
         params_box = QGroupBox("MEASUREMENT PARAMETERS")
         params_layout = QVBoxLayout(params_box)
@@ -110,6 +107,14 @@ class TubeParametersPanel(QWidget):
 
     def current_tube_name(self) -> str | None:
         return self._tube_combo.currentData()
+
+    def tube_combo(self) -> QComboBox:
+        return self._tube_combo
+
+    def select_tube(self, name: str) -> None:
+        index = self._tube_combo.findData(name)
+        if index >= 0:
+            self._tube_combo.setCurrentIndex(index)
 
     def _load_tubes(self) -> None:
         self._tube_combo.blockSignals(True)

@@ -73,6 +73,10 @@ class SweepPanel(QWidget):
         layout.addStretch()
         layout.addWidget(self._start_btn, alignment=Qt.AlignmentFlag.AlignHCenter)
 
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
     def is_sweep_enabled(self) -> bool:
         return self._sweep_enabled.isChecked()
 

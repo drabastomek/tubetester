@@ -1,0 +1,10 @@
+Toolbar icons in this folder are from Google Material Symbols / Material Icons
+(https://fonts.google.com/icons), downloaded via composables.com, and are licensed
+under the Apache License 2.0.
+
+See https://www.apache.org/licenses/LICENSE-2.0
+
+Bundled filenames:
+  new-session.svg, new-tube.svg, save-measurement.svg, export-last.svg,
+  edit-tube.svg, duplicate-tube.svg, refresh.svg, connect.svg, disconnect.svg,
+  help.svg
