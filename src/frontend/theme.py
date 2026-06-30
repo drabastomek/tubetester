@@ -20,6 +20,9 @@ QMainWindow, QWidget {{
     font-family: "{FONT_FAMILY}";
     font-size: 14px;
 }}
+QLabelParams {{
+    font-weight: bold;
+}}
 QGroupBox {{
     font-weight: 600;
     font-size: 11px;

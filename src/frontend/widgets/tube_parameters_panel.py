@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
+    QFrame,
     QFormLayout,
     QGridLayout,
     QGroupBox,
@@ -17,7 +18,75 @@ from PySide6.QtWidgets import (
 )
 
 from backend.database.repository import CatalogRepository, TubeTypeSystem
-from frontend.theme import MUTED, TEAL
+from frontend.theme import MUTED, TEAL, TEAL_BG, ORANGE, ORANGE_BG
+
+# Tester front-panel socket positions (photo layout): large A/D/I; B/C, E/F, G/H stacked.
+_SOCKET_GRID: dict[str, tuple[int, int, bool]] = {
+    "A": (1, 0, True),
+    "B": (0, 1, False),
+    "C": (2, 1, False),
+    "D": (1, 2, True),
+    "E": (0, 3, False),
+    "F": (2, 3, False),
+    "G": (0, 4, False),
+    "H": (2, 4, False),
+    "I": (1, 5, True),
+}
+_SOCKET_LARGE_PX = 52
+_SOCKET_SMALL_PX = 36
+
+
+class SocketDiagramWidget(QWidget):
+    """Nine on-panel sockets (A–I) in physical layout; highlights the active letter."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        grid = QGridLayout(self)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(8)
+
+        self._labels: dict[str, QLabel] = {}
+        for letter, (row, col, large) in _SOCKET_GRID.items():
+            label = QLabel(letter)
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            label.setFixedSize(
+                _SOCKET_LARGE_PX if large else _SOCKET_SMALL_PX,
+                _SOCKET_LARGE_PX if large else _SOCKET_SMALL_PX,
+            )
+            self._labels[letter] = label
+            grid.addWidget(label, row, col, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self.set_active_socket("A")
+
+    def set_active_socket(self, letter: str) -> None:
+        active = letter.upper()
+        for socket_letter, label in self._labels.items():
+            is_active = socket_letter == active
+            large = _SOCKET_GRID[socket_letter][2]
+            size = _SOCKET_LARGE_PX if large else _SOCKET_SMALL_PX
+            radius = size // 2
+            font_px = 20 if large else 14
+            if is_active:
+                label.setStyleSheet(
+                    f"border: 3px solid {ORANGE}; border-radius: {radius}px;"
+                    f" background: {ORANGE_BG}; font-size: {font_px}px;"
+                    f" font-weight: 700; color: {ORANGE};"
+                )
+            else:
+                label.setStyleSheet(
+                    f"border: 2px solid {MUTED}; border-radius: {radius}px;"
+                    f" background: #ffffff; font-size: {font_px}px;"
+                    f" font-weight: 600; color: {MUTED};"
+                )
+
+
+class QLabelParams(QLabel):
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+
+    def setText(self, text: str) -> None:
+        super().setText(f"<b>{text}</b>")
 
 
 class TubeParametersPanel(QWidget):
@@ -32,37 +101,49 @@ class TubeParametersPanel(QWidget):
         selection_row = QHBoxLayout(selection_box)
         self._tube_combo = QComboBox()
         self._tube_combo.currentIndexChanged.connect(self._on_tube_changed)
+        # TODO: add database handler here so we extract the parameters for the selected tube
         selection_row.addWidget(self._tube_combo)
 
         params_box = QGroupBox("MEASUREMENT PARAMETERS")
         params_layout = QVBoxLayout(params_box)
 
-        setpoints = QFormLayout()
-        setpoints.setLabelAlignment(setpoints.labelAlignment())
-        self._ua = self._ro_field("250")
-        self._ug1 = self._ro_field("-1.5")
-        self._ug2 = self._ro_field("—")
-        setpoints.addRow("Anode Voltage (Va)", self._with_unit(self._ua, "V"))
-        setpoints.addRow("Grid Voltage (Vg1)", self._with_unit(self._ug1, "V"))
-        setpoints.addRow("Screen Voltage (Vg2)", self._with_unit(self._ug2, "V"))
-        params_layout.addLayout(setpoints)
+        setpoints_grid = QGridLayout()
+        setpoints_grid.setHorizontalSpacing(16)
+
+        self._ua = QLabelParams("250")
+        self._ug1 = QLabelParams("-1.5")
+        self._ug2 = QLabelParams("—")
+
+        self._add_expected_row(setpoints_grid, 0, "Anode Voltage", "(Va)", self._ua, "V")
+        self._add_expected_row(setpoints_grid, 1, "Grid Voltage", "(Vg1)", self._ug1, "V")
+        self._add_expected_row(setpoints_grid, 2, "Screen Voltage", "(Vg2)", self._ug2, "V")
+
+        h_line = QFrame()
+        h_line.setFrameShape(QFrame.Shape.HLine)  # Set to horizontal line
+        h_line.setFrameShadow(QFrame.Shadow.Sunken) # Optional: adds depth
+
+        setpoints_grid.addWidget(h_line, 3, 0, 1, 4)
 
         expected_title = QLabel("EXPECTED VALUES")
-        expected_title.setStyleSheet(f"color: {MUTED}; font-weight: 600; font-size: 11px; margin-top: 8px;")
+        expected_title.setStyleSheet(f"color: {MUTED}; font-weight: 600; font-size: 11px; margin-top: 8px; text-align: center;")
+        
+        setpoints_grid.addWidget(expected_title, 4, 0, 1, 4)
+        params_layout.addLayout(setpoints_grid)
+
         params_layout.addWidget(expected_title)
 
         expected_grid = QGridLayout()
         expected_grid.setHorizontalSpacing(16)
-        self._exp_ia = QLabel("—")
-        self._exp_ig2 = QLabel("—")
-        self._exp_gm = QLabel("—")
-        self._exp_mu = QLabel("—")
-        self._exp_ra = QLabel("—")
-        self._add_expected_row(expected_grid, 0, "Anode Current (Ia)", self._exp_ia, "mA")
-        self._add_expected_row(expected_grid, 1, "Screen Current (Ig2)", self._exp_ig2, "mA")
-        self._add_expected_row(expected_grid, 2, "Transconductance (gm)", self._exp_gm, "S")
-        self._add_expected_row(expected_grid, 3, "Amplification (μ)", self._exp_mu, "")
-        self._add_expected_row(expected_grid, 4, "Anode Resistance (Ra)", self._exp_ra, "kΩ")
+        self._exp_ia = QLabelParams("3")
+        self._exp_ig2 = QLabelParams("—")
+        self._exp_gm = QLabelParams("—")
+        self._exp_mu = QLabelParams("—")
+        self._exp_ra = QLabelParams("—")
+        self._add_expected_row(expected_grid, 0, "Anode Current", "(Ia)", self._exp_ia, "mA")
+        self._add_expected_row(expected_grid, 1, "Screen Current", "(Ig2)", self._exp_ig2, "mA")
+        self._add_expected_row(expected_grid, 2, "Transconductance", "(gm)", self._exp_gm, "S")
+        self._add_expected_row(expected_grid, 3, "Amplification", "(μ)", self._exp_mu, "")
+        self._add_expected_row(expected_grid, 4, "Anode Resistance", "(Ra)", self._exp_ra, "kΩ")
         params_layout.addLayout(expected_grid)
 
         system_box = QGroupBox("TUBE SYSTEM")
@@ -79,19 +160,14 @@ class TubeParametersPanel(QWidget):
         socket_col = QVBoxLayout()
         socket_label = QLabel("SOCKET")
         socket_label.setStyleSheet(f"color: {MUTED}; font-size: 11px; font-weight: 600;")
-        self._socket_letter = QLabel("F")
-        self._socket_letter.setFixedSize(72, 72)
-        self._socket_letter.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._socket_letter.setStyleSheet(
-            f"border: 2px solid {MUTED}; border-radius: 36px; font-size: 28px; font-weight: 700;"
-        )
+        self._socket_diagram = SocketDiagramWidget()
         socket_col.addWidget(socket_label, alignment=Qt.AlignmentFlag.AlignHCenter)
-        socket_col.addWidget(self._socket_letter, alignment=Qt.AlignmentFlag.AlignHCenter)
-        tube_hint = QLabel("12-pin compact socket")
-        tube_hint.setStyleSheet(f"color: {TEAL}; font-size: 11px;")
-        tube_hint.setOpenExternalLinks(True)
-        tube_hint.setText('<a href="#">View datasheet</a>')
-        socket_col.addWidget(tube_hint)
+        socket_col.addWidget(self._socket_diagram, alignment=Qt.AlignmentFlag.AlignHCenter)
+        self._tube_hint = QLabel("12-pin compact socket")
+        self._tube_hint.setStyleSheet(f"color: {TEAL}; font-size: 11px;")
+        self._tube_hint.setOpenExternalLinks(True)
+        self._tube_hint.setText('<a href="#">View datasheet</a>')
+        socket_col.addWidget(self._tube_hint, alignment=Qt.AlignmentFlag.AlignHCenter)
         socket_row.addLayout(socket_col)
         socket_row.addStretch()
 
@@ -133,7 +209,14 @@ class TubeParametersPanel(QWidget):
         if tube is None:
             return
         self._systems = self._repo.list_tube_type_systems(tube.id)
-        self._socket_letter.setText(tube.socket)
+
+        if len(self._systems) > 1:
+            self._sys2.setCheckable(True)
+        else:
+            self._sys2.setCheckable(False)
+            self._sys1.setChecked(True)
+
+        self._socket_diagram.set_active_socket(tube.socket)
         self._apply_system(self._current_system())
         self.tube_changed.emit(name)
 
@@ -182,10 +265,13 @@ class TubeParametersPanel(QWidget):
         return wrap
 
     @staticmethod
-    def _add_expected_row(grid: QGridLayout, row: int, label: str, value: QLabel, unit: str) -> None:
+    def _add_expected_row(grid: QGridLayout, row: int, label: str, abbrev: str, value: QLabel, unit: str) -> None:
         name = QLabel(label)
         name.setStyleSheet(f"color: {MUTED};")
+        abbrev = QLabel(abbrev)
+        abbrev.setStyleSheet(f"color: {MUTED};")
         grid.addWidget(name, row, 0)
-        grid.addWidget(value, row, 1)
+        grid.addWidget(abbrev, row, 1)
+        grid.addWidget(value, row, 2)
         if unit:
-            grid.addWidget(QLabel(unit), row, 2)
+            grid.addWidget(QLabel(unit), row, 3)

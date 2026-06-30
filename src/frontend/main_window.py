@@ -117,7 +117,7 @@ class MainWindow(QMainWindow):
         self._action_export_last = QAction(icon("export_last"), "Export Last Result", self)
         self._action_export_last.triggered.connect(self._placeholder_export_last)
 
-        self._action_edit_tube = QAction(icon("edit_tube"), "Edit Tube Parameters", self)
+        self._action_edit_tube = QAction(icon("edit_tube"), "Edit Measurement Parameters", self)
         self._action_edit_tube.triggered.connect(self._placeholder_edit_tube)
 
         self._action_help = QAction(icon("help"), "Help", self)
@@ -169,10 +169,10 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
 
         toolbar.addAction(self._action_new_session)
-        toolbar.addAction(self._action_new_tube)
         toolbar.addAction(self._action_save_measurement)
         toolbar.addAction(self._action_export_last)
         toolbar.addSeparator()
+        toolbar.addAction(self._action_new_tube)
         toolbar.addAction(self._action_edit_tube)
         toolbar.addSeparator()
 
